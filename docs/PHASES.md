@@ -12,11 +12,11 @@
 | Task | Description |
 |---|---|
 | ✅ 1 | Docker Compose (postgres, redis, minio, nginx) |
-| ⬜ 2 | FastAPI skeleton + health endpoint |
-| ⬜ 3 | All SQLAlchemy models + Alembic migrations |
-| ⬜ 4 | JWT auth — signup, login, `/me` |
+| ✅ 2 | FastAPI skeleton + health endpoint |
+| ✅ 3 | All SQLAlchemy models + Alembic migrations |
+| ✅ 4 | JWT auth — signup, login, `/me` |
 
-**Deliverable:** `docker compose up` → stack running. Can sign up, log in, get token.
+**Deliverable:** `docker compose up` → stack running. Can sign up, log in, get token. ✅ **COMPLETE**
 
 ---
 

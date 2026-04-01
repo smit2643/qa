@@ -48,9 +48,18 @@ OAuth2 users (GitHub/Google) have `hashed_password = None` — login via OAuth o
 
 ---
 
+## Security: Timing-Safe Login
+
+The `login()` service always runs a dummy bcrypt verification even when the user is not found. This equalizes response time (~100ms) regardless of whether an email is registered, preventing email enumeration via response latency.
+
+```python
+# _DUMMY_HASH is a module-level constant
+verify_password(password, _DUMMY_HASH)   # always runs on user-not-found
+```
+
 ## OAuth2 (GitHub / Google)
 
-OAuth2 login is planned but not yet implemented in Phase 1. The `User` model has `oauth_provider` and `oauth_id` columns ready. Implementation will follow the standard OAuth2 authorization code flow:
+OAuth2 login is planned for Phase 2. The `User` model has `oauth_provider` and `oauth_id` columns ready. Implementation will follow the standard OAuth2 authorization code flow:
 
 1. Frontend redirects to `/auth/github`
 2. Backend redirects to GitHub OAuth
