@@ -1,0 +1,8 @@
+.worktrees/
+.env
+__pycache__/
+*.pyc
+node_modules/
+.next/
+test.db
+test_*.db
