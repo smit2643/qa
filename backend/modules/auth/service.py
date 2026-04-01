@@ -59,14 +59,24 @@ def signup(db: Session, email: str, name: str, password: str) -> User:
     return user
 
 
+# Constant-time dummy hash — used to equalize timing when user is not found
+_DUMMY_HASH = pwd_context.hash("dummy-password-for-timing-equalization")
+
+
 def login(db: Session, email: str, password: str) -> User:
     user = db.query(User).filter(User.email == email).first()
+
     if not user or not user.hashed_password:
+        # Run dummy verification to equalize timing and prevent email enumeration
+        verify_password(password, _DUMMY_HASH)
         raise ValueError("Invalid credentials")
+
     if not verify_password(password, user.hashed_password):
         raise ValueError("Invalid credentials")
+
     if not user.is_active:
         raise ValueError("Account is deactivated")
+
     return user
 
 

@@ -57,6 +57,7 @@ def test_me_returns_user(client):
     res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200
     data = res.json()
+    assert "id" in data
     assert data["email"] == "eve@example.com"
     assert data["name"] == "Eve"
     assert data["is_active"] is True
