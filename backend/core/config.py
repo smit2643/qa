@@ -1,11 +1,18 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from functools import lru_cache
 
+# Anchor .env path to project root (two levels up from this file: core/ -> backend/ -> project root)
+ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=str(ENV_FILE), extra="ignore")
+
     # Database
     database_url: str = "postgresql://bug0:bug0pass@localhost:5432/bug0db"
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://:bug0redis@localhost:6379/0"
     redis_password: str = "bug0redis"
     # MinIO / S3
     minio_endpoint: str = "localhost:9000"
@@ -37,7 +44,13 @@ class Settings(BaseSettings):
     # Sentry
     sentry_dsn: str = ""
 
-    model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> "Settings":
+        if self.environment != "development" and self.secret_key == "REPLACE_THIS_WITH_RANDOM_32_CHAR_STRING":
+            raise ValueError(
+                "SECRET_KEY must be set to a secure random value in non-development environments."
+            )
+        return self
 
 @lru_cache
 def get_settings() -> Settings:

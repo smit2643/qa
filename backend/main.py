@@ -6,14 +6,15 @@ from core.logging import setup_logging
 
 logger = setup_logging()
 
-if settings.sentry_dsn:
-    sentry_sdk.init(
-        dsn=settings.sentry_dsn,
-        environment=settings.environment,
-        traces_sample_rate=0.1,
-    )
 
 def create_app() -> FastAPI:
+    if settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            traces_sample_rate=0.1,
+        )
+
     app = FastAPI(
         title="Bug0 API",
         version="0.1.0",
@@ -36,5 +37,6 @@ def create_app() -> FastAPI:
 
     logger.info(f"Bug0 API starting in {settings.environment} mode")
     return app
+
 
 app = create_app()
