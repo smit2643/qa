@@ -1,0 +1,40 @@
+import sentry_sdk
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from core.config import settings
+from core.logging import setup_logging
+
+logger = setup_logging()
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=0.1,
+    )
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Bug0 API",
+        version="0.1.0",
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_url],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.get("/health", tags=["system"])
+    def health():
+        return {"status": "ok", "environment": settings.environment}
+
+    logger.info(f"Bug0 API starting in {settings.environment} mode")
+    return app
+
+app = create_app()
