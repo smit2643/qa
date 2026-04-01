@@ -19,6 +19,6 @@ class HealingSuggestion(UUIDMixin, TimestampMixin, Base):
     broken_selector: Mapped[str] = mapped_column(Text, nullable=False)
     suggested_selector: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[HealingStatus] = mapped_column(Enum(HealingStatus), default=HealingStatus.pending, nullable=False, index=True)
-    reviewer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     result: Mapped["TestResult"] = relationship(back_populates="healing_suggestions")

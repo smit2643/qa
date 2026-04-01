@@ -8,6 +8,8 @@ class AuditLog(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "audit_logs"
 
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Intentionally NOT a FK — audit logs are immutable historical records that must
+    # survive organization deletion. Store the raw ID for lookup but no referential constraint.
     organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # e.g. "project.create"
     resource_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
