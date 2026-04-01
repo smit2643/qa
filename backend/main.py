@@ -31,6 +31,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Routers
+    from modules.auth.router import router as auth_router
+    app.include_router(auth_router, prefix="/api/v1")
+
     @app.get("/health", tags=["system"])
     def health():
         return {"status": "ok", "environment": settings.environment}
