@@ -6,3 +6,4 @@ node_modules/
 .next/
 test.db
 test_*.db
+.worktrees/
