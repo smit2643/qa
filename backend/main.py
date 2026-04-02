@@ -36,10 +36,12 @@ def create_app() -> FastAPI:
     from modules.organizations.router import router as orgs_router
     from modules.projects.router import router as projects_router
     from modules.suites.router import router as suites_router
+    from modules.tests.router import router as tests_router
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(orgs_router, prefix="/api/v1")
     app.include_router(projects_router, prefix="/api/v1")
     app.include_router(suites_router, prefix="/api/v1")
+    app.include_router(tests_router, prefix="/api/v1")
 
     @app.get("/health", tags=["system"])
     def health():
