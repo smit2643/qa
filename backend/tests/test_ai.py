@@ -1,7 +1,8 @@
-"""Tests for Phase 3: AI Engine."""
+"""Tests for Phase 3: AI Engine — browser-use Agent + Generator."""
 
 import pytest
 from unittest.mock import AsyncMock, patch
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -9,8 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 @pytest.fixture
 def auth_headers_with_suite(client):
-    """Create user → login → org → project → suite and return (headers, suite_id)."""
-    # Sign up and log in
+    """Create user → login → org → project → suite. Return (headers, suite_id)."""
     client.post("/api/v1/auth/signup", json={
         "email": "ai_owner@example.com",
         "name": "AI Owner",
@@ -23,163 +23,203 @@ def auth_headers_with_suite(client):
     token = res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Get auto-created org
     org_id = client.get("/api/v1/organizations", headers=headers).json()[0]["id"]
 
-    # Create project
-    proj_res = client.post("/api/v1/projects", json={
+    proj = client.post("/api/v1/projects", json={
         "name": "AI Test Project",
         "target_url": "https://example.com",
         "organization_id": org_id,
     }, headers=headers)
-    assert proj_res.status_code == 200, proj_res.text
-    project_id = proj_res.json()["id"]
+    assert proj.status_code == 200, proj.text
 
-    # Create suite
-    suite_res = client.post("/api/v1/suites", json={
+    suite = client.post("/api/v1/suites", json={
         "name": "AI Suite",
-        "project_id": project_id,
+        "project_id": proj.json()["id"],
     }, headers=headers)
-    assert suite_res.status_code == 200, suite_res.text
-    suite_id = suite_res.json()["id"]
+    assert suite.status_code == 200, suite.text
 
-    return headers, suite_id
+    return headers, suite.json()["id"]
 
 
 # ---------------------------------------------------------------------------
-# Mock plan / code constants
+# Mock data
 # ---------------------------------------------------------------------------
 
-MOCK_PLAN = {
-    "test_name": "User Login",
-    "description": "Test login flow",
-    "p0_paths": ["login"],
-    "steps": [
-        {
-            "order": 0,
-            "action": "navigate",
-            "selector": None,
-            "value": "https://example.com/login",
-            "description": "Go to login",
-        },
-        {
-            "order": 1,
-            "action": "type",
-            "selector": "email input",
-            "value": "user@test.com",
-            "description": "Enter email",
-        },
-        {
-            "order": 2,
-            "action": "click",
-            "selector": "Login button",
-            "value": None,
-            "description": "Click login",
-        },
-    ],
-}
+MOCK_STEPS = [
+    {"order": 0, "action": "navigate", "selector": None, "value": "https://example.com/login", "description": "Go to login"},
+    {"order": 1, "action": "type", "selector": "Email", "value": "user@test.com", "description": "Enter email"},
+    {"order": 2, "action": "click", "selector": "Login button", "value": None, "description": "Click login"},
+]
 
 MOCK_CODE = (
     "async def test_user_login(page):\n"
+    "    # Navigate to login page\n"
     "    await page.goto('https://example.com/login')\n"
+    "    # Fill email\n"
+    "    await page.get_by_label('Email').fill('user@test.com')\n"
+    "    # Click login\n"
+    "    await page.get_by_role('button', name='Login').click()\n"
 )
 
+
 # ---------------------------------------------------------------------------
-# Endpoint tests
+# /ai/generate endpoint tests
 # ---------------------------------------------------------------------------
 
 def test_generate_endpoint(client, auth_headers_with_suite):
-    """Mock LLM + browser, verify endpoint returns test_id and code."""
+    """Mock browser-use Agent + generator, verify endpoint returns test_id and code."""
     headers, suite_id = auth_headers_with_suite
 
-    with patch("modules.ai.browser.get_accessibility_tree", new=AsyncMock(return_value="button: Login\ntextbox: Email")):
-        with patch("modules.ai.planner.plan_test", new=AsyncMock(return_value=MOCK_PLAN)):
-            with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
-                res = client.post("/api/v1/ai/generate", json={
-                    "description": "user logs in",
-                    "suite_id": suite_id,
-                }, headers=headers)
+    with patch("modules.ai.browser.run_agent", new=AsyncMock(return_value=MOCK_STEPS)):
+        with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
+            res = client.post("/api/v1/ai/generate", json={
+                "description": "user logs in",
+                "suite_id": suite_id,
+            }, headers=headers)
 
     assert res.status_code == 200, res.text
     data = res.json()
     assert "test_id" in data
-    assert "code" in data
+    assert data["code"] == MOCK_CODE
+    assert data["version"] == 1
+    assert len(data["steps"]) == 3
+
+
+def test_generate_twice_bumps_version(client, auth_headers_with_suite):
+    """Calling generate with same test_id increments version."""
+    headers, suite_id = auth_headers_with_suite
+
+    with patch("modules.ai.browser.run_agent", new=AsyncMock(return_value=MOCK_STEPS)):
+        with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
+            res1 = client.post("/api/v1/ai/generate", json={
+                "description": "user logs in",
+                "suite_id": suite_id,
+            }, headers=headers)
+            assert res1.status_code == 200
+            test_id = res1.json()["test_id"]
+            assert res1.json()["version"] == 1
+
+            res2 = client.post("/api/v1/ai/generate", json={
+                "description": "user logs in v2",
+                "suite_id": suite_id,
+                "test_id": test_id,
+            }, headers=headers)
+            assert res2.status_code == 200
+            assert res2.json()["version"] == 2
+            assert res2.json()["test_id"] == test_id
+
+
+def test_generate_requires_auth(client, auth_headers_with_suite):
+    _, suite_id = auth_headers_with_suite
+    res = client.post("/api/v1/ai/generate", json={"description": "test", "suite_id": suite_id})
+    assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# /ai/generate-from-steps endpoint tests
+# ---------------------------------------------------------------------------
+
+def test_generate_from_steps_endpoint(client, auth_headers_with_suite):
+    """Generate code from pre-built steps (recording/video pipeline)."""
+    headers, suite_id = auth_headers_with_suite
+
+    with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
+        res = client.post("/api/v1/ai/generate-from-steps", json={
+            "suite_id": suite_id,
+            "test_name": "User login flow",
+            "input_method": "video",
+            "steps": MOCK_STEPS,
+        }, headers=headers)
+
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert "test_id" in data
     assert data["code"] == MOCK_CODE
     assert data["version"] == 1
 
 
-def test_generate_twice_bumps_version(client, auth_headers_with_suite):
-    """Calling generate with the same test_id increments version to 2."""
-    headers, suite_id = auth_headers_with_suite
-
-    def _mock_generate(description, suite_id, test_id=None):
-        return {
-            "description": description,
-            "suite_id": suite_id,
-            "test_id": test_id,
-        }
-
-    with patch("modules.ai.browser.get_accessibility_tree", new=AsyncMock(return_value="button: Login")):
-        with patch("modules.ai.planner.plan_test", new=AsyncMock(return_value=MOCK_PLAN)):
-            with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
-                # First call — creates the test
-                res1 = client.post("/api/v1/ai/generate", json={
-                    "description": "user logs in",
-                    "suite_id": suite_id,
-                }, headers=headers)
-                assert res1.status_code == 200, res1.text
-                test_id = res1.json()["test_id"]
-                assert res1.json()["version"] == 1
-
-                # Second call — updates the same test
-                res2 = client.post("/api/v1/ai/generate", json={
-                    "description": "user logs in v2",
-                    "suite_id": suite_id,
-                    "test_id": test_id,
-                }, headers=headers)
-                assert res2.status_code == 200, res2.text
-                assert res2.json()["version"] == 2
-                assert res2.json()["test_id"] == test_id
-
-
-def test_generate_requires_auth(client, auth_headers_with_suite):
-    """Unauthenticated requests are rejected."""
+def test_generate_from_steps_requires_auth(client, auth_headers_with_suite):
     _, suite_id = auth_headers_with_suite
-    res = client.post("/api/v1/ai/generate", json={
-        "description": "test",
+    res = client.post("/api/v1/ai/generate-from-steps", json={
         "suite_id": suite_id,
+        "test_name": "test",
+        "steps": MOCK_STEPS,
     })
     assert res.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# LLMProvider construction tests (no API calls)
+# extract_steps_from_history unit tests
 # ---------------------------------------------------------------------------
 
-def test_llm_provider_claude_constructs():
+def test_extract_steps_navigate():
+    from modules.ai.browser import extract_steps_from_history
+
+    class FakeHistory:
+        def model_actions(self):
+            return [{"go_to_url": {"url": "https://example.com"}, "interacted_element": None}]
+
+    steps = extract_steps_from_history(FakeHistory())
+    assert len(steps) == 1
+    assert steps[0]["action"] == "navigate"
+    assert steps[0]["value"] == "https://example.com"
+
+
+def test_extract_steps_click():
+    from modules.ai.browser import extract_steps_from_history
+
+    class FakeHistory:
+        def model_actions(self):
+            return [{"click_element": {"element_description": "Login button"}, "interacted_element": None}]
+
+    steps = extract_steps_from_history(FakeHistory())
+    assert steps[0]["action"] == "click"
+    assert steps[0]["selector"] == "Login button"
+
+
+def test_extract_steps_type():
+    from modules.ai.browser import extract_steps_from_history
+
+    class FakeHistory:
+        def model_actions(self):
+            return [{"input_text": {"selector": "Email", "text": "user@test.com"}, "interacted_element": None}]
+
+    steps = extract_steps_from_history(FakeHistory())
+    assert steps[0]["action"] == "type"
+    assert steps[0]["value"] == "user@test.com"
+
+
+def test_extract_steps_skips_done():
+    from modules.ai.browser import extract_steps_from_history
+
+    class FakeHistory:
+        def model_actions(self):
+            return [
+                {"go_to_url": {"url": "https://example.com"}, "interacted_element": None},
+                {"done": {"success": True}, "interacted_element": None},
+            ]
+
+    steps = extract_steps_from_history(FakeHistory())
+    assert len(steps) == 1  # done is skipped
+
+
+# ---------------------------------------------------------------------------
+# LLMProvider construction tests
+# ---------------------------------------------------------------------------
+
+def test_llm_provider_claude():
     from modules.ai.llm import LLMProvider
-    llm = LLMProvider("claude")
-    assert llm.provider == "claude"
+    assert LLMProvider("claude").provider == "claude"
 
 
-def test_llm_provider_openai_constructs():
+def test_llm_provider_openai():
     from modules.ai.llm import LLMProvider
-    llm = LLMProvider("openai")
-    assert llm.provider == "openai"
+    assert LLMProvider("openai").provider == "openai"
 
 
-def test_llm_provider_gemini_constructs():
+def test_llm_provider_gemini():
     from modules.ai.llm import LLMProvider
-    llm = LLMProvider("gemini")
-    assert llm.provider == "gemini"
-
-
-def test_llm_provider_unknown_raises():
-    from modules.ai.llm import LLMProvider
-    import pytest
-    llm = LLMProvider("unknown_provider")
-    # Should raise when complete() is called, not at construction time
-    assert llm.provider == "unknown_provider"
+    assert LLMProvider("gemini").provider == "gemini"
 
 
 # ---------------------------------------------------------------------------
@@ -189,28 +229,21 @@ def test_llm_provider_unknown_raises():
 def test_compress_tree_short_passes_through():
     from modules.ai.compression import compress_tree
     text = "button: Submit\ntextbox: Email"
-    result = compress_tree(text, max_chars=10000)
-    assert result == text
+    assert compress_tree(text, max_chars=10000) == text
 
 
 def test_compress_tree_long_keeps_interactive():
     from modules.ai.compression import compress_tree, MAX_CHARS
-    # Build a large tree that exceeds MAX_CHARS
-    long_generic = ("generic: container\n" * 700)  # ~14000 chars
-    with_button = long_generic + "button: Submit\n"
-    result = compress_tree(with_button)
+    long_generic = "generic: container\n" * 700
+    result = compress_tree(long_generic + "button: Submit\n")
     assert len(result) <= MAX_CHARS + len("\n... [truncated for context limit]")
-    # The button line should be present (unless truncated before it)
-    # At minimum the function should return a string
     assert isinstance(result, str)
 
 
 def test_compress_tree_preserves_buttons():
     from modules.ai.compression import compress_tree
-    # Build text just over 12000 chars with button lines mixed in
-    filler = ("generic: spacer\n" * 800)  # ~12800 chars
-    with_interactive = "button: Login\n" + filler
-    result = compress_tree(with_interactive)
+    filler = "generic: spacer\n" * 800
+    result = compress_tree("button: Login\n" + filler)
     assert "button: Login" in result
 
 
@@ -220,41 +253,20 @@ def test_compress_tree_preserves_buttons():
 
 def test_compress_messages_short_passes_through():
     from modules.ai.compression import compress_messages
-    msgs = [
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "hi"},
-    ]
-    result = compress_messages(msgs)
-    assert result == msgs
+    msgs = [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}]
+    assert compress_messages(msgs) == msgs
 
 
-def test_compress_messages_long_history_gets_summarized():
+def test_compress_messages_long_gets_summarized():
     from modules.ai.compression import compress_messages
-    # Create messages that exceed 40000 chars total
-    msgs = [
-        {"role": "user", "content": "x" * 5000},
-        {"role": "assistant", "content": "y" * 5000},
-        {"role": "user", "content": "x" * 5000},
-        {"role": "assistant", "content": "y" * 5000},
-        {"role": "user", "content": "x" * 5000},
-        {"role": "assistant", "content": "y" * 5000},
-        {"role": "user", "content": "x" * 5000},
-        {"role": "assistant", "content": "y" * 5000},
-        {"role": "user", "content": "final question"},
-    ]
+    msgs = [{"role": "user", "content": "x" * 5000}, {"role": "assistant", "content": "y" * 5000}] * 4
+    msgs.append({"role": "user", "content": "final question"})
     result = compress_messages(msgs)
-    # Should be compressed (fewer messages or shorter)
     assert len(result) < len(msgs)
-    # Last 4 messages should be intact
     assert result[-1]["content"] == "final question"
 
 
-def test_compress_messages_few_messages_unchanged():
+def test_compress_messages_few_unchanged():
     from modules.ai.compression import compress_messages
-    # Even if total is large, if <= 4 messages, return as-is
-    msgs = [
-        {"role": "user", "content": "x" * 20000},
-        {"role": "assistant", "content": "y" * 20001},
-    ]
-    result = compress_messages(msgs)
-    assert result == msgs
+    msgs = [{"role": "user", "content": "x" * 20000}, {"role": "assistant", "content": "y" * 20001}]
+    assert compress_messages(msgs) == msgs
