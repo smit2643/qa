@@ -118,9 +118,13 @@ with patch("modules.ai.browser.get_accessibility_tree", new=AsyncMock(return_val
 
 ### AI engine (`modules/ai/`)
 
-Pipeline: `browser.py` (accessibility tree) → `compression.py` (fit in context) → `planner.py` (JSON plan) → `generator.py` (Playwright code) → `service.py` (orchestrates + saves to DB).
+Pipeline: `browser.py` (browser-use Agent navigates app → real steps) → `generator.py` (steps → Playwright code) → `service.py` (orchestrates + saves to DB).
+
+`browser_use.Agent` is the core — it autonomously navigates the target app, records real clicks/inputs, and returns `AgentHistoryList`. We extract real actions from `history.model_actions()` and convert them to `TestStep` records + Playwright code. This is far more reliable than static page snapshots.
 
 `LLMProvider` in `llm.py` is the unified interface. Default model is `claude-sonnet-4-6`. Switch provider via `LLM_PROVIDER` env var (`claude` | `openai` | `gemini`).
+
+Three input methods all converge on `generate-from-steps`: text (browser-use Agent), screen recording (event extraction), video upload (Claude Vision frame analysis).
 
 ---
 

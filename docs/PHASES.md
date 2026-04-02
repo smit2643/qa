@@ -11,19 +11,25 @@
 **Goal:** Ship a demoable product fast. Full investor/customer demo in the shortest path.
 
 **Demo flow:**
-1. Sign up → create project → describe test in English
-2. AI visits your app, generates working Playwright code in ~30s
-3. Hit "Run" → watch tests execute live in the browser
-4. See pass/fail results + video recording + screenshots
-5. All through a polished Next.js UI with dark mode
+1. Sign up → create project with your app's URL
+2. Describe a test in English → browser-use Agent navigates your real app → Playwright code generated
+3. OR upload a video of you using your app → Claude Vision extracts steps → code generated
+4. OR record your screen in-app → steps extracted → code generated
+5. Click "Run" → tests execute in parallel across browsers
+6. Watch live browser execution (split-screen: AI reasoning + live browser)
+7. See pass/fail + video recording + screenshot diffs
+8. All through a polished Next.js UI with dark mode
+
+**Key technical decision — browser-use Agent:**
+The AI doesn't guess steps from a static page snapshot. It uses `browser_use.Agent` to actually navigate and interact with your app — recording real clicks, real inputs, real selectors. This produces dramatically more reliable tests.
 
 **Build order for demo:**
 | Phase | Status | Why |
 |---|---|---|
 | 1 — Foundation | ✅ Complete | |
 | 2 — Project Management | ✅ Complete | |
-| 3 — AI Engine | ✅ Complete | Text → Playwright code works |
-| 4 — Input Methods | 🔨 Next | Screen recording + video → impressive demo |
+| 3 — AI Engine (fix) | 🔨 Next | Replace static snapshot with browser-use Agent |
+| 4 — Input Methods | 🔨 Next | Video upload + screen recording |
 | 5 — Execution Engine | 🔨 Next | Tests must actually run |
 | 8 — Frontend UI | 🔨 Next | Can't demo an API |
 | 6, 7, 9, 10 | ⏸ Post-demo | Self-healing, CI/CD, billing, hardening |

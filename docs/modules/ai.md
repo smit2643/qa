@@ -2,24 +2,91 @@
 
 Location: `backend/modules/ai/`
 
-Handles AI-powered test generation: takes a plain-English description of a user journey, visits the target URL in a headless browser, and returns working Playwright Python code — all via a multi-agent pipeline.
+Handles all AI-powered test generation. Three input methods feed into the same pipeline — all produce Playwright Python code saved as a `TestCase`.
+
+---
+
+## How It Actually Works
+
+**browser-use `Agent`** is the core. It's not a static page reader — it's an autonomous browser controller that actually navigates the app, clicks buttons, fills forms, and records every action it takes. Those real actions become the test steps.
+
+```
+WITHOUT browser-use (naive approach):
+  description → static page snapshot → LLM guesses steps → unreliable code
+
+WITH browser-use (what we use):
+  description → Agent NAVIGATES the real app → records real clicks/types → code from real interactions
+```
 
 ---
 
 ## Pipeline Overview
 
+### Input Method 1: Plain English (text)
+
 ```
-description + suite_id
-    → get project target_url
-    → browser visits URL → accessibility tree
-    → compress tree (fit in LLM context)
-    → Planner Agent → structured test plan (JSON)
-    → Generator Agent → Playwright Python code
-    → save TestCase + TestSteps to DB
-    → return {test_id, code, version, plan}
+POST /ai/generate  {description, suite_id}
+    │
+    ▼
+browser-use Agent
+  task: "Navigate the app and perform: <description>"
+  llm: Claude Sonnet 4.6 (default)
+  browser: headless Chromium
+    │
+    ├── Agent navigates target_url
+    ├── Finds and interacts with real elements
+    ├── Records every step (action, selector, value)
+    └── Returns AgentHistoryList
+    │
+    ▼
+extract_steps_from_history(history)
+  → list of {action, selector, value, description}
+    │
+    ▼
+Generator Agent (LLM)
+  → Playwright Python code from real steps
+    │
+    ▼
+Save TestCase (code + version) + TestSteps to DB
+Return {test_id, code, version, steps}
 ```
 
-Each stage is a discrete module so individual components can be swapped or tested independently.
+### Input Method 2: Screen Recording
+
+```
+POST /recordings/upload  (WebM from browser MediaRecorder API)
+    │
+    ▼
+Extract browser events from recording
+  → click coordinates → map to accessibility selectors
+  → keyboard input → value
+  → navigation events → URL
+    │
+    ▼
+Structured steps []
+    │
+    ▼
+POST /ai/generate-from-steps → Generator Agent → Playwright code
+```
+
+### Input Method 3: Video Upload
+
+```
+POST /videos/upload  (mp4 or webm)
+    │
+    ▼
+Sample frames every 2 seconds
+    │
+    ▼
+Claude Vision per frame:
+  "What user action is happening in this frame?"
+    │
+    ▼
+Sequence of {action, element, value} from frames
+    │
+    ▼
+POST /ai/generate-from-steps → Generator Agent → Playwright code
+```
 
 ---
 
@@ -28,27 +95,45 @@ Each stage is a discrete module so individual components can be swapped or teste
 | File | Responsibility |
 |---|---|
 | `llm.py` | Unified async LLM interface — Claude, OpenAI, Gemini |
-| `browser.py` | Headless browser visit → accessibility tree string |
+| `browser.py` | browser-use Agent — navigates app, records real actions |
 | `compression.py` | Context compression — tree and message history |
-| `planner.py` | Planner Agent — description + tree → structured JSON plan |
-| `generator.py` | Generator Agent — plan → Playwright Python code |
-| `service.py` | Orchestrates the full pipeline, RBAC check, DB writes |
-| `router.py` | FastAPI router — `POST /api/v1/ai/generate` |
+| `planner.py` | Fallback planner — used when Agent cannot navigate (private/blocked pages) |
+| `generator.py` | Generator Agent — steps → Playwright Python code |
+| `service.py` | Orchestrates full pipeline, RBAC check, DB writes |
+| `router.py` | FastAPI routes — `/ai/generate`, `/ai/generate-from-steps` |
+
+---
+
+## browser-use Agent (`browser.py`)
+
+Uses `browser_use.Agent` (v0.12.5) to autonomously interact with the target app.
+
+```python
+from browser_use import Agent
+from browser_use.browser.session import BrowserSession
+from browser_use.browser.profile import BrowserProfile
+
+agent = Agent(
+    task=f"Navigate to {target_url} and perform: {description}. Record every action.",
+    llm=llm,
+    browser_session=session,
+)
+history = await agent.run(max_steps=20)
+steps = extract_steps_from_history(history)
+```
+
+**What we extract from `AgentHistoryList`:**
+- `history.action_names()` — list of action types (click, type, navigate…)
+- `history.model_actions()` — full action details with selectors and values
+- `history.urls()` — all URLs visited during the run
+
+**storageState injection:** If the project has `storage_state_json`, it's loaded into `BrowserProfile` so the agent starts already authenticated — no login step needed.
 
 ---
 
 ## LLM Provider (`llm.py`)
 
-`LLMProvider` is a unified async class that wraps Claude, OpenAI, and Gemini behind a single interface.
-
-### Methods
-
-| Method | Signature | Returns |
-|---|---|---|
-| `complete` | `complete(messages, system) -> str` | Raw string reply from the model |
-| `complete_json` | `complete_json(messages, system) -> dict` | Parsed dict; strips markdown fences, raises `ValueError` on invalid JSON |
-
-### Supported Providers
+Unified async interface wrapping Claude, OpenAI, and Gemini.
 
 | Provider | Model | Required Env Var |
 |---|---|---|
@@ -56,248 +141,108 @@ Each stage is a discrete module so individual components can be swapped or teste
 | `openai` | `gpt-4o` | `OPENAI_API_KEY` |
 | `gemini` | `gemini-2.0-flash` | `GOOGLE_API_KEY` |
 
-### Switching Providers
-
-Set `LLM_PROVIDER` in `.env`. No code changes needed.
-
-```
-# .env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-```
-
-The provider is read from `settings.llm_provider` at runtime, or can be passed directly to the `LLMProvider` constructor.
+Switch provider: set `LLM_PROVIDER=openai` in `.env` — no code changes needed.
 
 ---
 
-## Browser + Accessibility Tree (`browser.py`)
+## Generator Agent (`generator.py`)
 
+Takes structured steps (from browser-use history, screen recording, or video) and produces Playwright Python code.
+
+**Selector strategy — accessibility first (10x more stable):**
 ```python
-get_accessibility_tree(url, storage_state_json=None) -> str
-```
+# What the generator produces:
+await page.get_by_role("button", name="Login").click()
+await page.get_by_label("Email").fill("user@test.com")
+await page.get_by_placeholder("Search...").fill("query")
 
-Uses Playwright in headless mode to visit `url` and extract the page's accessibility tree via `page.accessibility.snapshot()`. The tree is formatted by `_format_tree()`, which recursively renders each node as indented text:
-
-```
-role: name
-  role: name
-    role: name
-```
-
-### storageState.json Integration
-
-If `storage_state_json` is provided (a JSON string containing cookies/localStorage from a logged-in session), the browser module:
-
-1. Writes the JSON to a temp file
-2. Passes the temp file path to Playwright's browser context as `storage_state`
-3. The browser launches already authenticated — no login step needed
-
-This allows the accessibility tree to reflect authenticated page state (dashboards, account pages, etc.).
-
-**How it flows:**
-
-```
-Project.storage_state_json (stored in DB, uploaded via Phase 2 API)
-    → service.py reads it from project record
-    → passes it to get_accessibility_tree()
-    → browser.py writes temp file, injects into Playwright context
-    → accessibility tree reflects authenticated page
+# What it avoids:
+await page.click(".login-btn-v2")      # CSS — breaks when class changes
+await page.click("//div[@id='btn']")   # XPath — fragile
 ```
 
 ---
 
 ## Context Compression (`compression.py`)
 
-LLM context windows are finite. Two compression helpers prevent hitting token limits.
-
-### `compress_tree(tree_text, max_chars=12000)`
-
-Compresses the raw accessibility tree before sending it to the Planner Agent.
-
-| Condition | Action |
-|---|---|
-| `len(tree_text) <= max_chars` | Pass through unchanged |
-| Tree too long | Keep only interactive roles: `button`, `link`, `textbox`, `input`, `combobox`, `checkbox`, `radio`, `menuitem`, `tab`, `listitem` |
-| Still too long after filtering | Truncate to `max_chars` and append a note indicating truncation |
-
-### `compress_messages(messages, max_total_chars=40000)`
-
-Compresses conversation history to prevent overflow in multi-turn flows.
-
-| Condition | Action |
-|---|---|
-| Total chars `<= max_total_chars` | Pass through unchanged |
-| History too long | Keep the last 4 messages verbatim; summarize older messages into a single system-style context message |
+| Function | Trigger | Behaviour |
+|---|---|---|
+| `compress_tree(text, max=12000)` | Tree > 12k chars | Keeps interactive roles: button, link, textbox, input, combobox, heading |
+| `compress_messages(msgs, max=40000)` | History > 40k chars | Last 4 messages intact, older ones summarized |
 
 ---
 
-## Planner Agent (`planner.py`)
+## API Endpoints
 
-```python
-plan_test(description, accessibility_tree, target_url, llm) -> dict
-```
+### `POST /api/v1/ai/generate` 🔒
 
-Sends the compressed accessibility tree, user description, and target URL to the LLM with a system prompt that instructs it to output structured JSON. Uses `llm.complete_json()` to guarantee a parsed dict.
+Generate test from plain English. browser-use Agent actually navigates the app.
 
-### Output Schema
-
+**Request:**
 ```json
 {
-  "test_name": "string",
-  "description": "string",
-  "p0_paths": ["string"],
+  "description": "user logs in with email and password and lands on dashboard",
+  "suite_id": "...",
+  "test_id": "..."
+}
+```
+
+> `test_id` optional — if provided, updates existing test and bumps version.
+
+**Response:**
+```json
+{
+  "test_id": "...",
+  "code": "async def test_user_login(page: Page):\n    ...",
+  "version": 1,
   "steps": [
-    {
-      "order": 1,
-      "action": "navigate|click|type|assert|wait",
-      "selector": "getByRole / getByLabel / getByPlaceholder expression",
-      "value": "string or null",
-      "description": "human-readable step description"
-    }
+    {"order": 0, "action": "navigate", "value": "https://app.com/login"},
+    {"order": 1, "action": "type", "selector": "Email", "value": "user@test.com"},
+    {"order": 2, "action": "click", "selector": "Login button"}
   ]
 }
 ```
 
-`p0_paths` lists the critical happy-path user journeys the test covers (e.g. "User submits login form with valid credentials").
+> Expect 15–40 seconds — agent is actually browsing your app.
 
----
+### `POST /api/v1/ai/generate-from-steps` 🔒
 
-## Generator Agent (`generator.py`)
+Generate code from pre-built steps (screen recording or video upload output).
 
-```python
-generate_code(plan, llm) -> str
-```
-
-Takes the plan dict from the Planner Agent and asks the LLM to convert it into async Playwright Python. The system prompt enforces:
-
-- Use `page.get_by_role()`, `page.get_by_label()`, `page.get_by_placeholder()` — never CSS selectors or XPath
-- Proper `async`/`await` throughout
-- `expect()` assertions for all assert steps
-- No `page.locator(".some-css-class")` calls
-
-Strips markdown code fences if the model wraps output in triple backticks.
-
-### Example Output Shape
-
-```python
-import asyncio
-from playwright.async_api import async_playwright, expect
-
-async def run_test(page):
-    await page.goto("https://app.example.com/login")
-    await page.get_by_label("Email").fill("user@example.com")
-    await page.get_by_label("Password").fill("hunter2")
-    await page.get_by_role("button", name="Sign in").click()
-    await expect(page.get_by_role("heading", name="Dashboard")).to_be_visible()
-```
-
----
-
-## Selector Strategy
-
-The pipeline uses accessibility selectors exclusively — `getByRole`, `getByLabel`, `getByPlaceholder` — rather than CSS classes or XPaths. This is intentional:
-
-| Selector type | Stability | Why |
-|---|---|---|
-| CSS class (`.btn-primary`) | Low | Classes change with design system updates |
-| XPath (`//div[3]/button`) | Low | Breaks on any DOM restructure |
-| `getByRole("button", name="Sign in")` | High | Reflects semantic meaning; survives CSS and DOM refactors |
-| `getByLabel("Email")` | High | Tied to accessible label, which rarely changes |
-
-This is the same approach recommended by Playwright's official docs and used by bug0's production system.
-
----
-
-## Service Layer (`service.py`)
-
-Orchestrates the full pipeline and handles persistence.
-
-### Steps
-
-1. **RBAC check** — verify requesting user is `member` or above in the suite's organization; raise 403 otherwise
-2. **Fetch project data** — load `target_url` and `storage_state_json` from the project record
-3. **Accessibility tree** — call `get_accessibility_tree(target_url, storage_state_json)`
-4. **Compress tree** — call `compress_tree()` before passing to agents
-5. **Plan** — call `plan_test(description, compressed_tree, target_url, llm)`
-6. **Generate** — call `generate_code(plan, llm)`
-7. **Persist** — create or update `TestCase` in DB (if `test_id` provided, update existing); replace all `TestStep` rows from plan steps
-8. **Return** — `{test_id, code, version, plan}`
-
----
-
-## API Endpoint (`router.py`)
-
-### `POST /api/v1/ai/generate`
-
-Requires a valid JWT (`Authorization: Bearer <token>`).
-
-#### Request Body
-
+**Request:**
 ```json
 {
-  "description": "User logs in with valid credentials and lands on the dashboard",
-  "suite_id": "uuid",
-  "test_id": "uuid | null"
+  "suite_id": "...",
+  "test_name": "User login flow",
+  "steps": [
+    {"order": 0, "action": "navigate", "value": "https://app.com/login"},
+    {"order": 1, "action": "type", "selector": "email input", "value": "user@test.com"},
+    {"order": 2, "action": "click", "selector": "Login button"}
+  ]
 }
 ```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `description` | string | Yes | Plain-English description of the user journey to test |
-| `suite_id` | UUID | Yes | Which test suite this test belongs to |
-| `test_id` | UUID | No | If provided, updates an existing test instead of creating a new one |
-
-#### Response
-
-```json
-{
-  "test_id": "uuid",
-  "code": "import asyncio\nfrom playwright...",
-  "version": 2,
-  "plan": {
-    "test_name": "Login flow — valid credentials",
-    "description": "...",
-    "p0_paths": ["..."],
-    "steps": [...]
-  }
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `test_id` | UUID | ID of the created or updated TestCase |
-| `code` | string | Full Playwright Python async code, ready to execute |
-| `version` | int | Version number (incremented on each regeneration) |
-| `plan` | object | Structured plan from the Planner Agent |
-
-#### Error Responses
-
-| Status | Condition |
-|---|---|
-| 401 | Missing or invalid JWT |
-| 403 | User is not a member of the suite's organization |
-| 404 | `suite_id` or `test_id` not found |
-| 422 | Missing required fields |
-| 500 | LLM call failed or returned invalid JSON |
 
 ---
 
 ## Environment Variables
 
-| Variable | Required | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `LLM_PROVIDER` | No (default: `claude`) | Active LLM provider: `claude`, `openai`, or `gemini` |
-| `ANTHROPIC_API_KEY` | If using Claude | API key for Anthropic |
-| `OPENAI_API_KEY` | If using OpenAI | API key for OpenAI |
-| `GOOGLE_API_KEY` | If using Gemini | API key for Google |
+| `LLM_PROVIDER` | `claude` | `claude` \| `openai` \| `gemini` |
+| `ANTHROPIC_API_KEY` | — | Required for Claude |
+| `OPENAI_API_KEY` | — | Required for OpenAI |
+| `GOOGLE_API_KEY` | — | Required for Gemini |
 
 ---
 
-## Dependencies
+## Testing
 
-| Package | Purpose |
-|---|---|
-| `anthropic` | Claude API client |
-| `openai` | OpenAI API client |
-| `google-generativeai` | Gemini API client |
-| `playwright` | Headless browser for accessibility tree extraction |
+All AI tests mock browser-use Agent and LLM — no real API calls:
+
+```python
+from unittest.mock import AsyncMock, patch
+
+with patch("modules.ai.browser.run_agent", new=AsyncMock(return_value=mock_steps)):
+    with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=mock_code)):
+        res = client.post("/api/v1/ai/generate", json={...}, headers=headers)
+```

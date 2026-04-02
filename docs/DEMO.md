@@ -2,7 +2,7 @@
 
 **Setup time:** ~5 minutes
 **Demo time:** ~10 minutes
-**Wow factor:** AI visits your app and writes Playwright tests in real time
+**Wow factor:** browser-use Agent actually navigates your app and writes real Playwright tests
 
 ---
 
@@ -28,13 +28,13 @@ alembic upgrade head
 uvicorn main:app --reload --port 8080
 ```
 
-API docs available at: **http://localhost:8080/api/docs**
+API docs: **http://localhost:8080/api/docs**
 
 ---
 
 ## Demo Flow
 
-### Step 1 — Sign up (30 seconds)
+### Step 1 — Sign up
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/signup \
@@ -42,44 +42,37 @@ curl -X POST http://localhost:8080/api/v1/auth/signup \
   -d '{"email":"demo@yourapp.com","name":"Demo User","password":"secret123"}'
 ```
 
-- Account created
-- Personal organization auto-created
-- JWT token returned
+Personal organization is auto-created. JWT token returned.
 
 ---
 
-### Step 2 — Log in and get token
+### Step 2 — Log in
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"demo@yourapp.com","password":"secret123"}'
+  -d '{"email":"demo@yourapp.com","password":"secret123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 ```
 
-Copy the `access_token` — use it as `Bearer <token>` for all requests.
-
 ---
 
-### Step 3 — Create a project (30 seconds)
+### Step 3 — Create a project
 
 ```bash
-# Get your org ID first
-curl http://localhost:8080/api/v1/organizations \
-  -H "Authorization: Bearer <token>"
+# Get org ID
+ORG_ID=$(curl -s http://localhost:8080/api/v1/organizations \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
 
-# Create project
+# Create project pointing at your app
 curl -X POST http://localhost:8080/api/v1/projects \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "My App",
-    "target_url": "https://yourapp.com",
-    "organization_id": "<org_id>"
-  }'
+  -d "{\"name\":\"My App\",\"target_url\":\"https://yourapp.com\",\"organization_id\":\"$ORG_ID\"}"
 ```
 
-- Project created with an **auto-generated API key** (for CI/CD)
-- `target_url` is where AI will navigate to read the page
+Project gets an **auto-generated API key** for CI/CD. `target_url` is where the AI will navigate.
 
 ---
 
@@ -87,9 +80,9 @@ curl -X POST http://localhost:8080/api/v1/projects \
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/suites \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Smoke Tests", "project_id": "<project_id>"}'
+  -d "{\"name\":\"Smoke Tests\",\"project_id\":\"$PROJECT_ID\"}"
 ```
 
 ---
@@ -98,49 +91,71 @@ curl -X POST http://localhost:8080/api/v1/suites \
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/ai/generate \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "description": "user logs in with email and password and lands on dashboard",
-    "suite_id": "<suite_id>"
-  }'
+  -d "{
+    \"description\": \"user logs in with email and password and lands on dashboard\",
+    \"suite_id\": \"$SUITE_ID\"
+  }"
 ```
 
-**What happens behind the scenes:**
-1. AI opens your `target_url` in a headless browser
-2. Reads the page accessibility tree (buttons, inputs, links)
-3. Planner Agent maps the user journey → structured test plan
-4. Generator Agent writes Playwright Python code
-5. Test + steps saved to DB automatically
+**What actually happens:**
+1. `browser_use.Agent` opens your app in a headless browser
+2. Agent autonomously navigates — clicks the login link, finds email/password fields, fills them, clicks submit
+3. Records every real action it performed (not guesses — real interactions)
+4. Generator Agent converts those real actions → Playwright Python code using accessibility selectors
+5. Test + steps saved to DB
 
 **Response:**
 ```json
 {
   "test_id": "...",
   "version": 1,
-  "code": "async def test_user_login(page):\n    await page.goto('https://yourapp.com/login')\n    await page.get_by_label('Email').fill('user@test.com')\n    ...",
-  "plan": { "steps": [...] }
+  "code": "async def test_user_login(page: Page):\n    await page.goto('https://yourapp.com')\n    await page.get_by_role('link', name='Login').click()\n    await page.get_by_label('Email').fill('user@test.com')\n    await page.get_by_label('Password').fill('secret')\n    await page.get_by_role('button', name='Sign in').click()\n    await expect(page).to_have_url(re.compile('dashboard'))\n",
+  "steps": [
+    {"order": 0, "action": "navigate", "value": "https://yourapp.com"},
+    {"order": 1, "action": "click", "selector": "Login link"},
+    {"order": 2, "action": "type", "selector": "Email", "value": "user@test.com"},
+    {"order": 3, "action": "type", "selector": "Password", "value": "secret"},
+    {"order": 4, "action": "click", "selector": "Sign in button"},
+    {"order": 5, "action": "assert", "selector": "URL contains dashboard"}
+  ]
 }
 ```
 
 ---
 
-### Step 6 — Run the test (Phase 5 — coming soon)
+### Step 6 — Video upload input (Phase 4 — coming next)
 
-> Tests will execute in parallel across Chromium, Firefox, WebKit.
-> Live browser stream visible in the UI.
+```bash
+# Upload a screen recording of you using your app
+curl -X POST http://localhost:8080/api/v1/videos/upload \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@recording.mp4" \
+  -F "suite_id=$SUITE_ID" \
+  -F "test_name=User login flow"
+```
+
+Claude Vision analyzes frames → extracts steps → generates code. No description needed — just show it.
 
 ---
 
-### Step 7 — See results (Phase 5 — coming soon)
+### Step 7 — Run the test (Phase 5 — coming next)
 
-> Pass/fail status, video recording, console logs, screenshot diffs.
+```bash
+curl -X POST http://localhost:8080/api/v1/runs/trigger \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"suite_id\":\"$SUITE_ID\",\"trigger\":\"manual\"}"
+```
+
+Tests execute in parallel across Chromium, Firefox, WebKit. Live browser stream visible in UI.
 
 ---
 
-### Step 8 — Full UI (Phase 8 — coming soon)
+### Step 8 — Full UI (Phase 8 — coming next)
 
-> Polished Next.js dashboard. Dark mode. Live execution split-screen.
+Polished Next.js dashboard. Dark mode. Split-screen live execution view (AI reasoning panel + live browser).
 
 ---
 
@@ -148,22 +163,24 @@ curl -X POST http://localhost:8080/api/v1/ai/generate \
 
 | Feature | What to say |
 |---|---|
-| Accessibility selectors | "No CSS selectors — AI uses roles and labels, 10x more stable when UI changes" |
-| LLM swappable | "Claude by default, swap to GPT-4o or Gemini with one env var change" |
-| storageState.json | "Upload Playwright auth state — AI can test logged-in flows without re-logging in" |
-| Version history | "Every time AI regenerates code, version increments — full history kept" |
-| API key per project | "Drop-in CI/CD — one curl command in GitHub Actions triggers your suite" |
-| 3 input methods | "Text description today, screen recording and video upload coming next" |
+| **browser-use Agent** | "The AI doesn't guess — it actually uses your app like a user, recording real clicks and inputs" |
+| **Accessibility selectors** | "No CSS selectors — uses roles and labels, 10x more stable when UI changes" |
+| **3 input methods** | "Text description, screen recording, or video upload — whatever is easiest" |
+| **LLM swappable** | "Claude by default, swap to GPT-4o or Gemini with one env var" |
+| **storageState.json** | "Upload Playwright auth state — agent tests logged-in flows without re-logging in every time" |
+| **Version history** | "Every regeneration bumps version — full history of how the test evolved" |
+| **API key per project** | "One curl command in GitHub Actions triggers your full suite" |
 
 ---
 
-## What's Coming Next
+## What's Coming Next (Build Order)
 
 | Feature | Phase | Status |
 |---|---|---|
-| Screen recording → test | 4 | Building next |
-| Video upload → test (Claude Vision) | 4 | Building next |
-| Run tests (parallel, cross-browser) | 5 | Building next |
-| Live browser stream during execution | 5 | Building next |
-| Pass/fail + video + visual diff | 5 | Building next |
-| Full polished UI | 8 | After 4 + 5 |
+| browser-use Agent integration (fix Phase 3) | 3 fix | Building now |
+| Video upload → Claude Vision → test | 4 | Next |
+| Screen recording → test | 4 | Next |
+| Run tests (parallel, cross-browser, video capture) | 5 | Next |
+| Live browser stream during execution | 5 | Next |
+| Pass/fail + video + screenshot diffs | 5 | Next |
+| Full polished Next.js UI | 8 | After 4 + 5 |
