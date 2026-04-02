@@ -2,7 +2,7 @@
 
 **Approach:** Build phase by phase. Each phase ships working, testable software. User approves each phase before the next starts.
 
-**Current status:** Phase 2 complete
+**Current status:** Phase 3 complete
 
 ---
 
@@ -40,14 +40,14 @@
 
 | Task | Description |
 |---|---|
-| ⬜ 10 | LLM provider abstraction (Claude default, GPT-4o, Gemini swappable) |
-| ⬜ 11 | **Planner Agent** — maps user journey, identifies P0 paths, produces structured test plan |
-| ⬜ 12 | **Generator Agent** — converts plan → Playwright code with `getByRole` selectors |
-| ⬜ 13 | browser-use integration — visit URL, read accessibility tree |
-| ⬜ 14 | Hierarchical context compression (long flows don't hit LLM limits) |
-| ⬜ 15 | `/ai/generate` endpoint — text description → test code |
+| ✅ 10 | LLM provider abstraction (Claude default, GPT-4o, Gemini swappable) |
+| ✅ 11 | **Planner Agent** — maps user journey, identifies P0 paths, produces structured test plan |
+| ✅ 12 | **Generator Agent** — converts plan → Playwright code with `getByRole` selectors |
+| ✅ 13 | browser-use integration — visit URL, read accessibility tree |
+| ✅ 14 | Hierarchical context compression (long flows don't hit LLM limits) |
+| ✅ 15 | `/ai/generate` endpoint — text description → test code |
 
-**Deliverable:** POST description → get back working Playwright test code in ~30 seconds.
+**Deliverable:** POST description → get back working Playwright test code in ~30 seconds. ✅ **COMPLETE**
 
 ---
 
