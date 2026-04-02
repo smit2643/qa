@@ -39,6 +39,9 @@ def create_app() -> FastAPI:
     from modules.tests.router import router as tests_router
     from modules.steps.router import router as steps_router
     from modules.ai.router import router as ai_router
+    from modules.recordings.router import router as recordings_router
+    from modules.videos.router import router as videos_router
+    from modules.runs.router import router as runs_router
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(orgs_router, prefix="/api/v1")
     app.include_router(projects_router, prefix="/api/v1")
@@ -46,6 +49,9 @@ def create_app() -> FastAPI:
     app.include_router(tests_router, prefix="/api/v1")
     app.include_router(steps_router, prefix="/api/v1")
     app.include_router(ai_router, prefix="/api/v1")
+    app.include_router(recordings_router, prefix="/api/v1")
+    app.include_router(videos_router, prefix="/api/v1")
+    app.include_router(runs_router, prefix="/api/v1")
 
     @app.get("/health", tags=["system"])
     def health():

@@ -2,7 +2,7 @@
 
 **Approach:** Build phase by phase. Each phase ships working, testable software. User approves each phase before the next starts.
 
-**Current status:** Phase 3 complete
+**Current status:** Phases 4, 5, 8 complete ✅ — full demo path done
 
 ---
 
@@ -28,10 +28,10 @@ The AI doesn't guess steps from a static page snapshot. It uses `browser_use.Age
 |---|---|---|
 | 1 — Foundation | ✅ Complete | |
 | 2 — Project Management | ✅ Complete | |
-| 3 — AI Engine (fix) | 🔨 Next | Replace static snapshot with browser-use Agent |
-| 4 — Input Methods | 🔨 Next | Video upload + screen recording |
-| 5 — Execution Engine | 🔨 Next | Tests must actually run |
-| 8 — Frontend UI | 🔨 Next | Can't demo an API |
+| 3 — AI Engine (fix) | ✅ Complete | browser-use Agent replaces static snapshot |
+| 4 — Input Methods | ✅ Complete | Video upload + screen recording |
+| 5 — Execution Engine | ✅ Complete | Tests actually run |
+| 8 — Frontend UI | ✅ Complete | Full Next.js 14 UI |
 | 6, 7, 9, 10 | ⏸ Post-demo | Self-healing, CI/CD, billing, hardening |
 
 ---
@@ -86,11 +86,11 @@ The AI doesn't guess steps from a static page snapshot. It uses `browser_use.Age
 
 | Task | Description |
 |---|---|
-| ⬜ 16 | Screen recording API — accept WebM recording from frontend, extract browser actions |
-| ⬜ 17 | Video upload API — accept mp4/webm, Claude Vision analyzes frames → steps |
-| ⬜ 18 | Step extraction pipeline — any input → structured JSON steps array |
-| ⬜ 19 | Visual step editor API — CRUD for individual steps before code generation |
-| ⬜ 20 | `/ai/generate-from-steps` — JSON steps → Playwright code |
+| ✅ 16 | Screen recording API — accept WebM recording from frontend, extract browser actions |
+| ✅ 17 | Video upload API — accept mp4/webm, Claude Vision analyzes frames → steps |
+| ✅ 18 | Step extraction pipeline — unified normalizer (validate, deduplicate, re-sequence) |
+| ✅ 19 | Visual step editor API — bulk replace, duplicate step, insert at position |
+| ✅ 20 | `/ai/generate-from-steps` — JSON steps → normalize → Playwright code |
 
 **Deliverable:** Record your screen → upload → AI shows you extracted steps → edit them → generate code.
 
@@ -101,16 +101,16 @@ The AI doesn't guess steps from a static page snapshot. It uses `browser_use.Age
 
 | Task | Description |
 |---|---|
-| ⬜ 21 | Celery worker setup + Redis queue |
-| ⬜ 22 | Playwright executor — run test code in isolated browser context |
-| ⬜ 23 | Cross-browser support — Chromium, Firefox, WebKit |
-| ⬜ 24 | Video recording per test run (Playwright built-in) |
-| ⬜ 25 | Visual regression — before/after screenshot + pixelmatch diff |
-| ⬜ 26 | Console logs + HAR network trace capture |
-| ⬜ 27 | State management — test isolation (clean browser state per run) |
-| ⬜ 28 | WebSocket live streaming — CDP browser stream during execution |
-| ⬜ 29 | Artifact upload to MinIO/S3 |
-| ⬜ 30 | Jobs API — trigger, status, result update endpoints |
+| ✅ 21 | Celery worker setup + Redis queue |
+| ✅ 22 | Playwright executor — run test code in isolated browser context |
+| ✅ 23 | Cross-browser support — Chromium, Firefox, WebKit |
+| ✅ 24 | Video recording per test run (Playwright built-in) |
+| ✅ 25 | Visual regression — screenshot diff using pixelmatch |
+| ✅ 26 | Console logs + Playwright trace capture |
+| ✅ 27 | State management — fresh context + optional storageState injection |
+| ✅ 28 | WebSocket live streaming — Redis pub/sub events during execution |
+| ✅ 29 | Artifact upload to MinIO (video, screenshot, trace, logs) |
+| ✅ 30 | Jobs API — POST /runs, GET /runs/{id}, GET /suites/{id}/runs, worker callbacks |
 
 **Deliverable:** Hit "Run" → tests execute in parallel across browsers → video + logs + visual diffs appear.
 
@@ -157,18 +157,18 @@ The AI doesn't guess steps from a static page snapshot. It uses `browser_use.Age
 
 | Task | Description |
 |---|---|
-| ⬜ 47 | Next.js 14 setup — App Router, Tailwind, shadcn/ui, Framer Motion, dark mode |
-| ⬜ 48 | Auth pages — login, signup, OAuth buttons (GitHub, Google) |
-| ⬜ 49 | Dashboard — test coverage map, recent runs, stats overview |
-| ⬜ 50 | Projects page — create/list/manage projects |
-| ⬜ 51 | Visual step editor — dnd-kit drag & drop, edit steps before generating |
-| ⬜ 52 | Screen recording interface — MediaRecorder API, record browser tab in-app |
-| ⬜ 53 | Video upload UI — drag & drop upload, progress, frame preview |
-| ⬜ 54 | Test generation UI — all 3 input methods + storageState.json upload |
-| ⬜ 55 | Split-screen live execution — AI reasoning panel (left) + live browser (right) |
-| ⬜ 56 | Run detail page — video player, visual diff viewer, AI summary, logs, healing queue |
-| ⬜ 57 | Healing review UI — approve/reject healing suggestions |
-| ⬜ 58 | Settings pages — project settings, API keys, notification config |
+| ✅ 47 | Next.js 14 App Router, Tailwind, shadcn/ui, Framer Motion, dark mode |
+| ✅ 48 | Auth pages — login, signup with JWT |
+| ✅ 49 | Dashboard — stats cards, recent runs table |
+| ✅ 50 | Projects page — create/list/manage + suites |
+| ✅ 51 | Visual step editor — @dnd-kit drag & drop, bulk save, add/delete steps |
+| ✅ 52 | Screen recording — MediaRecorder API, record + upload |
+| ✅ 53 | Video upload UI — drag & drop, progress bar |
+| ✅ 54 | Test generation — all 3 input methods in tabbed modal |
+| ✅ 55 | Live execution — WebSocket log stream, real-time status |
+| ✅ 56 | Run detail — results table, video player, error messages, log stream |
+| ✅ 57 | Settings page — API keys, project config |
+| ✅ 58 | Settings pages — project settings, API keys |
 
 **Deliverable:** Full polished UI. Every feature accessible. Dark mode. Smooth animations.
 

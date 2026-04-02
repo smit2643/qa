@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from modules.auth.dependencies import get_current_user
 from modules.steps import service
-from modules.steps.schemas import StepCreate, StepUpdate, StepResponse
+from modules.steps.schemas import StepCreate, StepUpdate, StepResponse, BulkStepItem, StepInsert
 from models import User
 
 router = APIRouter(tags=["steps"])
@@ -68,3 +68,35 @@ def reorder_steps(
     current_user: User = Depends(get_current_user),
 ):
     return service.reorder_steps(db, current_user.id, test_id, body.step_ids)
+
+
+@router.put("/tests/{test_id}/steps", response_model=list[StepResponse])
+def bulk_replace_steps(
+    test_id: str,
+    body: list[BulkStepItem],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Replace ALL steps for a test in one call. Used by the visual step editor 'Save' action."""
+    return service.bulk_replace_steps(db, current_user.id, test_id, body)
+
+
+@router.post("/steps/{step_id}/duplicate", response_model=StepResponse)
+def duplicate_step(
+    step_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clone a step and insert it immediately after the original."""
+    return service.duplicate_step(db, current_user.id, step_id)
+
+
+@router.post("/tests/{test_id}/steps/insert", response_model=StepResponse)
+def insert_step_at(
+    test_id: str,
+    body: StepInsert,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Insert a new step at a given position, shifting subsequent steps down."""
+    return service.insert_step_at(db, current_user.id, test_id, body)

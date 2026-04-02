@@ -6,7 +6,7 @@ from models.test_suite import TestSuite
 from models.project import Project
 from models import Role
 from modules.organizations.service import require_role
-from modules.steps.schemas import StepCreate, StepUpdate
+from modules.steps.schemas import StepCreate, StepUpdate, BulkStepItem, StepInsert
 
 
 def _get_org_id_for_test(db: Session, test_id: str) -> str:
@@ -87,6 +87,88 @@ def delete_step(db: Session, user_id: str, step_id: str) -> None:
     require_role(db, user_id, org_id, Role.member)
     db.delete(step)
     db.commit()
+
+
+def bulk_replace_steps(db: Session, user_id: str, test_id: str, items: list[BulkStepItem]) -> list[TestStep]:
+    """Delete all existing steps for the test and replace with the provided list (in order)."""
+    org_id = _get_org_id_for_test(db, test_id)
+    require_role(db, user_id, org_id, Role.member)
+
+    db.query(TestStep).filter(TestStep.test_id == test_id).delete()
+
+    new_steps = []
+    for i, item in enumerate(items):
+        step = TestStep(
+            test_id=test_id,
+            order=i,
+            action=item.action.value,
+            selector=item.selector,
+            value=item.value,
+            description=item.description,
+            is_assertion=item.is_assertion,
+        )
+        db.add(step)
+        new_steps.append(step)
+
+    db.commit()
+    for step in new_steps:
+        db.refresh(step)
+    return new_steps
+
+
+def duplicate_step(db: Session, user_id: str, step_id: str) -> TestStep:
+    """Clone a step, insert it right after the original, shift subsequent steps down."""
+    original = _get_step_or_404(db, step_id)
+    org_id = _get_org_id_for_test(db, original.test_id)
+    require_role(db, user_id, org_id, Role.member)
+
+    insert_at = original.order + 1
+
+    # Shift steps at order >= insert_at up by 1
+    db.query(TestStep).filter(
+        TestStep.test_id == original.test_id,
+        TestStep.order >= insert_at,
+    ).update({"order": TestStep.order + 1})
+
+    clone = TestStep(
+        test_id=original.test_id,
+        order=insert_at,
+        action=original.action,
+        selector=original.selector,
+        value=original.value,
+        description=original.description,
+        is_assertion=original.is_assertion,
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+    return clone
+
+
+def insert_step_at(db: Session, user_id: str, test_id: str, data: StepInsert) -> TestStep:
+    """Insert a new step at `data.at_order`, shifting existing steps at that position down."""
+    org_id = _get_org_id_for_test(db, test_id)
+    require_role(db, user_id, org_id, Role.member)
+
+    # Shift steps at order >= at_order up by 1
+    db.query(TestStep).filter(
+        TestStep.test_id == test_id,
+        TestStep.order >= data.at_order,
+    ).update({"order": TestStep.order + 1})
+
+    step = TestStep(
+        test_id=test_id,
+        order=data.at_order,
+        action=data.action.value,
+        selector=data.selector,
+        value=data.value,
+        description=data.description,
+        is_assertion=data.is_assertion,
+    )
+    db.add(step)
+    db.commit()
+    db.refresh(step)
+    return step
 
 
 def reorder_steps(db: Session, user_id: str, test_id: str, step_ids: list[str]) -> list[TestStep]:

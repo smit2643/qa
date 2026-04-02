@@ -43,7 +43,8 @@ def extract_steps_from_history(history: Any) -> list[dict]:
             steps.append(step)
             order += 1
 
-    return steps
+    from modules.extraction.normalizer import normalize_steps
+    return normalize_steps(steps)
 
 
 def _map_action(action_name: str, params: dict, order: int) -> dict | None:

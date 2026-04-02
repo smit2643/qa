@@ -30,6 +30,25 @@ class StepUpdate(BaseModel):
     is_assertion: bool | None = None
 
 
+class BulkStepItem(BaseModel):
+    """One step entry in a bulk-replace request (no test_id — inferred from URL)."""
+    action: StepAction
+    selector: str | None = None
+    value: str | None = None
+    description: str = ""
+    is_assertion: bool = False
+
+
+class StepInsert(BaseModel):
+    """Insert a new step at `at_order`, shifting existing steps down."""
+    at_order: int
+    action: StepAction
+    selector: str | None = None
+    value: str | None = None
+    description: str = ""
+    is_assertion: bool = False
+
+
 class StepResponse(BaseModel):
     id: str
     test_id: str

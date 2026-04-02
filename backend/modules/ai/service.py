@@ -146,11 +146,15 @@ async def generate_from_steps(
 ) -> dict:
     """
     Generate Playwright code from pre-built steps (screen recording or video upload).
-    Steps come in already extracted — we just run the Generator Agent.
+    Steps come in already extracted — normalize them, then run the Generator Agent.
     """
     suite = _get_suite_or_404(db, suite_id)
     project = suite.project
     require_role(db, user_id, project.organization_id, Role.member)
+
+    # Normalize steps before code generation (handles edits from visual editor)
+    from modules.extraction.normalizer import normalize_steps
+    steps = normalize_steps(steps)
 
     llm = LLMProvider()
     code = await generator.generate_code(steps=steps, llm=llm)

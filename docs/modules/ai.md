@@ -104,6 +104,29 @@ POST /ai/generate-from-steps → Generator Agent → Playwright code
 
 ---
 
+## Extraction Module (`modules/extraction/`)
+
+All three input pipelines pass their raw steps through a shared normalizer before any DB writes or code generation.
+
+| File | Responsibility |
+|---|---|
+| `normalizer.py` | `normalize_steps(steps)` — validate actions, fill descriptions, deduplicate, re-sequence |
+
+**What `normalize_steps` does:**
+1. Coerces unknown action types (e.g. `hover`, `scroll`) → `wait`
+2. Fills missing/empty `description` fields with sensible defaults based on action + context
+3. Removes consecutive duplicate steps (same `action` + `selector` + `value`)
+4. Re-sequences `order` fields to 0, 1, 2…
+
+**Valid actions:** `navigate`, `click`, `type`, `assert`, `wait`
+
+This runs automatically at the end of:
+- `modules/ai/browser.py` → `extract_steps_from_history()`
+- `modules/recordings/extractor.py` → `extract_steps_from_video()`
+- (videos module reuses the recordings extractor — covered automatically)
+
+---
+
 ## browser-use Agent (`browser.py`)
 
 Uses `browser_use.Agent` (v0.12.5) to autonomously interact with the target app.
