@@ -1,0 +1,55 @@
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+from core.database import get_db
+from modules.auth.dependencies import get_current_user
+from modules.suites import service
+from modules.suites.schemas import SuiteCreate, SuiteUpdate, SuiteResponse
+from models import User
+
+router = APIRouter(tags=["suites"])
+
+
+@router.post("/suites", response_model=SuiteResponse)
+def create_suite(
+    body: SuiteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return service.create_suite(db, current_user.id, body)
+
+
+@router.get("/projects/{project_id}/suites", response_model=list[SuiteResponse])
+def list_suites(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return service.list_suites(db, current_user.id, project_id)
+
+
+@router.get("/suites/{suite_id}", response_model=SuiteResponse)
+def get_suite(
+    suite_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return service.get_suite(db, current_user.id, suite_id)
+
+
+@router.patch("/suites/{suite_id}", response_model=SuiteResponse)
+def update_suite(
+    suite_id: str,
+    body: SuiteUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return service.update_suite(db, current_user.id, suite_id, body)
+
+
+@router.delete("/suites/{suite_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_suite(
+    suite_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service.delete_suite(db, current_user.id, suite_id)
