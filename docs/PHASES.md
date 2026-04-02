@@ -2,7 +2,7 @@
 
 **Approach:** Build phase by phase. Each phase ships working, testable software. User approves each phase before the next starts.
 
-**Current status:** Phase 1 in progress (Task 1 ✅ done)
+**Current status:** Phase 2 complete
 
 ---
 
@@ -26,12 +26,12 @@
 | Task | Description |
 |---|---|
 | ✅ 5 | Organizations + membership model + OAuth (GitHub, Google) |
-| ⬜ 6 | Projects + TestSuites CRUD + API key generation |
-| ⬜ 7 | TestCase CRUD + version history |
-| ⬜ 8 | Step model (JSON steps array per test — visual builder data) |
-| ⬜ 9 | storageState.json upload per project (Playwright auth state) |
+| ✅ 6 | Projects + TestSuites CRUD + API key generation |
+| ✅ 7 | TestCase CRUD + version history |
+| ✅ 8 | Step model (JSON steps array per test — visual builder data) |
+| ✅ 9 | storageState.json upload per project (Playwright auth state) |
 
-**Deliverable:** Full project/suite/test management via API. CI can trigger with API key.
+**Deliverable:** Full project/suite/test management via API. CI can trigger with API key. ✅ **COMPLETE**
 
 ---
 
