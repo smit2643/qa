@@ -2,6 +2,24 @@
 
 ---
 
+## Local Development (without Docker)
+
+```bash
+# Start only the infrastructure services
+cd infra
+docker compose up -d postgres redis minio
+
+# Backend (in a separate terminal)
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+uvicorn main:app --reload --port 8080
+
+# API docs: http://localhost:8080/api/docs
+```
+
+---
+
 ## Development
 
 Start everything with Docker Compose:
@@ -24,10 +42,10 @@ Services:
 | Service | URL |
 |---|---|
 | Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
+| Backend API | http://localhost:8080 |
 | API via Nginx | http://localhost/api |
 | MinIO Console | http://localhost:9001 |
-| PostgreSQL | localhost:5432 |
+| PostgreSQL | localhost:5434 (Docker) |
 | Redis | localhost:6379 |
 
 ---

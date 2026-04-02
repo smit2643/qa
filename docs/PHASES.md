@@ -6,6 +6,30 @@
 
 ---
 
+## Demo Strategy
+
+**Goal:** Ship a demoable product fast. Full investor/customer demo in the shortest path.
+
+**Demo flow:**
+1. Sign up → create project → describe test in English
+2. AI visits your app, generates working Playwright code in ~30s
+3. Hit "Run" → watch tests execute live in the browser
+4. See pass/fail results + video recording + screenshots
+5. All through a polished Next.js UI with dark mode
+
+**Build order for demo:**
+| Phase | Status | Why |
+|---|---|---|
+| 1 — Foundation | ✅ Complete | |
+| 2 — Project Management | ✅ Complete | |
+| 3 — AI Engine | ✅ Complete | Text → Playwright code works |
+| 4 — Input Methods | 🔨 Next | Screen recording + video → impressive demo |
+| 5 — Execution Engine | 🔨 Next | Tests must actually run |
+| 8 — Frontend UI | 🔨 Next | Can't demo an API |
+| 6, 7, 9, 10 | ⏸ Post-demo | Self-healing, CI/CD, billing, hardening |
+
+---
+
 ## Phase 1 — Foundation
 **Goal:** Everything boots. Auth works. Database ready.
 

@@ -8,11 +8,21 @@ Copy `.env.example` to `.env` and fill in all values before starting services.
 
 | Variable | Example | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://bug0:pass@postgres:5432/bug0db` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://redis:6379/0` | Redis connection string |
+| `DATABASE_URL` | `postgresql://bug0:pass@localhost:5434/bug0db` | PostgreSQL connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
 | `SECRET_KEY` | `<32+ random chars>` | JWT signing key — never reuse across envs |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` | Claude API key for AI test generation |
 | `FRONTEND_URL` | `http://localhost:3000` | Used for CORS and redirect URLs |
+
+---
+
+## AI Provider
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PROVIDER` | `claude` | Which LLM to use: `claude` \| `openai` \| `gemini` |
+| `ANTHROPIC_API_KEY` | — | Required when `LLM_PROVIDER=claude` — get from console.anthropic.com |
+| `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` — get from platform.openai.com |
+| `GOOGLE_API_KEY` | — | Required when `LLM_PROVIDER=gemini` — get from aistudio.google.com |
 
 ---
 
@@ -35,7 +45,7 @@ MINIO_BUCKET=your-bucket-name
 
 ---
 
-## OAuth2 (optional for Phase 1)
+## OAuth2 (optional)
 
 | Variable | Description |
 |---|---|
@@ -54,7 +64,7 @@ MINIO_BUCKET=your-bucket-name
 
 ---
 
-## Billing (optional for Phase 1)
+## Billing (optional)
 
 | Variable | Description |
 |---|---|
@@ -67,7 +77,7 @@ MINIO_BUCKET=your-bucket-name
 
 | Variable | Default | Description |
 |---|---|---|
-| `BACKEND_URL` | `http://backend:8000` | Backend API base URL (used by runner to POST results) |
+| `BACKEND_URL` | `http://localhost:8080` | Backend API base URL (used by runner to POST results) |
 
 ---
 
