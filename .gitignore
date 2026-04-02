@@ -2,8 +2,11 @@
 .env
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
 node_modules/
 .next/
 test.db
 test_*.db
-.worktrees/
