@@ -25,7 +25,7 @@
 
 | Task | Description |
 |---|---|
-| ⬜ 5 | Organizations + membership model + OAuth (GitHub, Google) |
+| ✅ 5 | Organizations + membership model + OAuth (GitHub, Google) |
 | ⬜ 6 | Projects + TestSuites CRUD + API key generation |
 | ⬜ 7 | TestCase CRUD + version history |
 | ⬜ 8 | Step model (JSON steps array per test — visual builder data) |

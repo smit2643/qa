@@ -59,13 +59,18 @@ verify_password(password, _DUMMY_HASH)   # always runs on user-not-found
 
 ## OAuth2 (GitHub / Google)
 
-OAuth2 login is planned for Phase 2. The `User` model has `oauth_provider` and `oauth_id` columns ready. Implementation will follow the standard OAuth2 authorization code flow:
+Implemented in Phase 2 (`backend/modules/auth/oauth.py`). Authorization code flow:
 
-1. Frontend redirects to `/auth/github`
-2. Backend redirects to GitHub OAuth
-3. GitHub redirects back with code
-4. Backend exchanges code for user info
-5. Upsert user record, issue JWT
+1. Frontend redirects user to `GET /api/v1/auth/{github|google}/login`
+2. Backend redirects to provider's OAuth page
+3. Provider redirects back to `GET /api/v1/auth/{provider}/callback?code=...`
+4. Backend exchanges code for access token, fetches user profile
+5. Upserts user record (links to existing email/password account if found), issues JWT
+6. Backend redirects to `{FRONTEND_URL}/auth/callback?token=<jwt>`
+
+**Graceful degradation:** If `GITHUB_CLIENT_ID` or `GOOGLE_CLIENT_ID` env vars are empty, endpoints return `501 Not Implemented`.
+
+**Account linking:** If a user signs up via OAuth with an email that already has a password account, the OAuth provider is linked to that existing account transparently.
 
 ---
 
@@ -92,3 +97,7 @@ Raises `401 Unauthorized` if token is missing, expired, or invalid.
 |---|---|
 | `SECRET_KEY` | JWT signing key — must be 32+ random chars in production |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime, default 1440 (24h) |
+| `GITHUB_CLIENT_ID` | GitHub OAuth App client ID (leave empty to disable) |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (leave empty to disable) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
