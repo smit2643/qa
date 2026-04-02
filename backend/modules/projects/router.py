@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, status
+import json
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from core.database import get_db
 from modules.auth.dependencies import get_current_user
@@ -62,3 +63,29 @@ def rotate_api_key(
     current_user: User = Depends(get_current_user),
 ):
     return service.rotate_api_key(db, current_user.id, project_id)
+
+
+@router.post("/projects/{project_id}/storage-state", response_model=ProjectResponse)
+async def upload_storage_state(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    content = await file.read()
+    try:
+        json.loads(content)  # validate it's JSON
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="File must be valid JSON")
+    project = service.upload_storage_state(db, current_user.id, project_id, content.decode())
+    return ProjectResponse.model_validate(project)
+
+
+@router.delete("/projects/{project_id}/storage-state")
+def delete_storage_state(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service.delete_storage_state(db, current_user.id, project_id)
+    return {"message": "Storage state removed"}

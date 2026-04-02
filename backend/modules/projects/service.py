@@ -67,3 +67,21 @@ def rotate_api_key(db: Session, user_id: str, project_id: str) -> Project:
     db.commit()
     db.refresh(project)
     return project
+
+
+def upload_storage_state(db: Session, user_id: str, project_id: str, json_content: str) -> Project:
+    project = _get_project_or_404(db, project_id)
+    _check_project_access(db, user_id, project, Role.admin)
+    project.storage_state_json = json_content
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def delete_storage_state(db: Session, user_id: str, project_id: str) -> Project:
+    project = _get_project_or_404(db, project_id)
+    _check_project_access(db, user_id, project, Role.admin)
+    project.storage_state_json = None
+    db.commit()
+    db.refresh(project)
+    return project

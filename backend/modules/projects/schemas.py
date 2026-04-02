@@ -19,6 +19,7 @@ class ProjectResponse(BaseModel):
     name: str
     target_url: str
     api_key: str
+    storage_state_json: str | None = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

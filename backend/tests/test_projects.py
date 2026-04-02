@@ -1,3 +1,4 @@
+import io
 import pytest
 
 
@@ -114,3 +115,37 @@ def test_rotate_api_key_returns_new_key(client, auth_headers, project):
     new_key = res.json()["api_key"]
     assert new_key != old_key
     assert len(new_key) == 64
+
+
+def test_upload_storage_state(client, auth_headers, project):
+    project_id = project["id"]
+    files = {"file": ("storageState.json", io.BytesIO(b'{"cookies": [], "origins": []}'), "application/json")}
+    res = client.post(f"/api/v1/projects/{project_id}/storage-state", files=files, headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["storage_state_json"] is not None
+    assert "cookies" in data["storage_state_json"]
+
+
+def test_upload_storage_state_invalid_json(client, auth_headers, project):
+    project_id = project["id"]
+    files = {"file": ("storageState.json", io.BytesIO(b'not valid json!!!'), "application/json")}
+    res = client.post(f"/api/v1/projects/{project_id}/storage-state", files=files, headers=auth_headers)
+    assert res.status_code == 422
+
+
+def test_delete_storage_state(client, auth_headers, project):
+    project_id = project["id"]
+    # First upload
+    files = {"file": ("storageState.json", io.BytesIO(b'{"cookies": [], "origins": []}'), "application/json")}
+    res = client.post(f"/api/v1/projects/{project_id}/storage-state", files=files, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["storage_state_json"] is not None
+    # Then delete
+    res = client.delete(f"/api/v1/projects/{project_id}/storage-state", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["message"] == "Storage state removed"
+    # Verify it's gone
+    res = client.get(f"/api/v1/projects/{project_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["storage_state_json"] is None
