@@ -389,3 +389,100 @@ async def test_execute_action_click_fallback():
     })
 
     assert success is True
+
+
+# ---------------------------------------------------------------------------
+# _run_custom_agent unit tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_custom_agent_basic():
+    """Agent completes task in 2 steps: navigate then done."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from modules.ai.browser import _run_custom_agent
+
+    llm_responses = [
+        '{"action": "navigate", "selector": null, "value": "https://example.com", "description": "Go to site", "done": false}',
+        '{"action": "done", "selector": null, "value": null, "description": "Task complete", "done": true}',
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.complete = AsyncMock(side_effect=llm_responses)
+
+    mock_page = MagicMock()
+    mock_page.goto = AsyncMock()
+    mock_page.wait_for_load_state = AsyncMock()
+    mock_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    mock_page.url = "https://example.com"
+
+    with patch("modules.ai.browser.LLMProvider", return_value=mock_llm):
+        steps = await _run_custom_agent(
+            task="visit example.com",
+            target_url="https://example.com",
+            page=mock_page,
+            max_steps=10,
+        )
+
+    assert len(steps) >= 1
+    assert steps[0]["action"] == "navigate"
+    assert steps[0]["value"] == "https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_run_custom_agent_stops_after_consecutive_failures():
+    """Agent stops gracefully after 3 consecutive action failures."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from modules.ai.browser import _run_custom_agent
+
+    bad_action = '{"action": "click", "selector": "Nonexistent", "value": null, "description": "click", "done": false}'
+    mock_llm = MagicMock()
+    mock_llm.complete = AsyncMock(return_value=bad_action)
+
+    mock_page = MagicMock()
+    mock_page.goto = AsyncMock()
+    mock_page.wait_for_load_state = AsyncMock()
+    mock_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    mock_page.url = "https://example.com"
+    mock_page.get_by_role = MagicMock(side_effect=Exception("not found"))
+    mock_page.get_by_text = MagicMock(side_effect=Exception("not found"))
+
+    with patch("modules.ai.browser.LLMProvider", return_value=mock_llm):
+        steps = await _run_custom_agent(
+            task="click something",
+            target_url="https://example.com",
+            page=mock_page,
+            max_steps=10,
+        )
+
+    # Should stop gracefully — no crash, returns whatever was recorded
+    assert isinstance(steps, list)
+    # Only the initial navigate step should be recorded
+    assert len(steps) == 1
+    assert steps[0]["action"] == "navigate"
+
+
+@pytest.mark.asyncio
+async def test_run_custom_agent_invalid_json_falls_back_to_done():
+    """Agent stops gracefully when LLM returns invalid JSON twice."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from modules.ai.browser import _run_custom_agent
+
+    mock_llm = MagicMock()
+    mock_llm.complete = AsyncMock(return_value="not json at all")
+
+    mock_page = MagicMock()
+    mock_page.goto = AsyncMock()
+    mock_page.wait_for_load_state = AsyncMock()
+    mock_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    mock_page.url = "https://example.com"
+
+    with patch("modules.ai.browser.LLMProvider", return_value=mock_llm):
+        steps = await _run_custom_agent(
+            task="do something",
+            target_url="https://example.com",
+            page=mock_page,
+            max_steps=5,
+        )
+
+    assert isinstance(steps, list)
+    assert len(steps) == 1  # only initial navigate

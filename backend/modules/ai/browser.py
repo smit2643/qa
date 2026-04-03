@@ -6,6 +6,7 @@ import tempfile
 from typing import Any
 
 from core.config import settings
+from modules.ai.llm import LLMProvider
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,139 @@ async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
 
     except Exception as exc:
         return False, str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Custom agent — main loop (Ollama vision)
+# ---------------------------------------------------------------------------
+
+_AGENT_SYSTEM = (
+    "You are a browser automation agent. Look at the screenshot and decide "
+    "the next single action to complete the task. "
+    "Respond with JSON only — no explanation, no markdown fences."
+)
+
+
+async def _run_custom_agent(
+    task: str,
+    target_url: str,
+    page: Any,
+    max_steps: int = 25,
+) -> list[dict]:
+    """
+    Custom vision-based agent loop for Ollama.
+    Takes screenshots, asks the LLM what to do, executes actions.
+    Returns steps in our standard format.
+    """
+    import base64
+    import re
+
+    llm = LLMProvider()
+    step_history: list[dict] = []
+    consecutive_failures = 0
+    order = 0
+
+    # Navigate to start URL first
+    try:
+        await page.goto(target_url, timeout=20000)
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        step_history.append({
+            "order": order,
+            "action": "navigate",
+            "selector": None,
+            "value": target_url,
+            "description": f"Navigate to {target_url}",
+        })
+        order += 1
+    except Exception as exc:
+        return [{"order": 0, "action": "navigate", "selector": None, "value": target_url,
+                 "description": f"Navigate to {target_url} (failed: {exc})"}]
+
+    last_error: str | None = None
+
+    for _ in range(max_steps):
+        # Take screenshot
+        try:
+            screenshot_bytes = await page.screenshot(type="png", timeout=10000)
+        except Exception:
+            break
+
+        img_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+        current_url = page.url
+
+        # Build history summary (last 5 steps to keep context short)
+        history_summary = json.dumps([
+            {"action": s["action"], "description": s["description"]}
+            for s in step_history[-5:]
+        ])
+
+        error_note = f"\nLast action failed: {last_error}\nTry a different selector or approach." if last_error else ""
+
+        user_text = (
+            f"Task: {task}\n"
+            f"Current URL: {current_url}\n"
+            f"Steps completed so far: {history_summary}{error_note}\n\n"
+            'What is the next action? Respond ONLY with this JSON:\n'
+            '{\n'
+            '  "action": "click|type|navigate|assert|wait|done",\n'
+            '  "selector": "visible text or label of the element (null if not needed)",\n'
+            '  "value": "URL to navigate to or text to type (null if not needed)",\n'
+            '  "description": "what you are doing",\n'
+            '  "done": false\n'
+            '}\n'
+            'Set done=true when the task is fully complete.'
+        )
+
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                {"type": "text", "text": user_text},
+            ],
+        }]
+
+        # Ask LLM — retry once on JSON parse failure
+        action: dict = {}
+        for attempt in range(2):
+            try:
+                raw = await llm.complete(messages, system=_AGENT_SYSTEM)
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw.strip())
+                raw = re.sub(r"\n?```$", "", raw.rstrip())
+                action = json.loads(raw)
+                break
+            except Exception:
+                if attempt == 0:
+                    messages[-1]["content"][-1]["text"] += "\n\nYour last response was not valid JSON. Respond with JSON only."
+                else:
+                    action = {"action": "done", "selector": None, "value": None, "description": "LLM parse failed", "done": True}
+
+        # Stop if done
+        if action.get("done") or action.get("action") == "done":
+            break
+
+        # Execute action
+        success, error = await _execute_action(page, action)
+
+        if success:
+            consecutive_failures = 0
+            last_error = None
+            step = {
+                "order": order,
+                "action": action.get("action", "wait"),
+                "selector": action.get("selector"),
+                "value": action.get("value"),
+                "description": action.get("description", ""),
+            }
+            step_history.append(step)
+            order += 1
+        else:
+            consecutive_failures += 1
+            last_error = error
+            if consecutive_failures >= 3:
+                break  # Stop gracefully
+
+    from modules.extraction.normalizer import normalize_steps
+    return normalize_steps(step_history)
 
 
 # ---------------------------------------------------------------------------
