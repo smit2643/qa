@@ -270,3 +270,65 @@ def test_compress_messages_few_unchanged():
     from modules.ai.compression import compress_messages
     msgs = [{"role": "user", "content": "x" * 20000}, {"role": "assistant", "content": "y" * 20001}]
     assert compress_messages(msgs) == msgs
+
+
+# ---------------------------------------------------------------------------
+# _execute_action unit tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_execute_action_navigate():
+    from unittest.mock import AsyncMock, MagicMock
+    from modules.ai.browser import _execute_action
+
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_load_state = AsyncMock()
+
+    success, err = await _execute_action(page, {
+        "action": "navigate",
+        "selector": None,
+        "value": "https://example.com",
+        "description": "Go to example",
+    })
+
+    assert success is True
+    assert err is None
+    page.goto.assert_called_once_with("https://example.com", timeout=15000)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_done():
+    from unittest.mock import MagicMock
+    from modules.ai.browser import _execute_action
+
+    page = MagicMock()
+    success, err = await _execute_action(page, {"action": "done", "selector": None, "value": None, "description": "done"})
+    assert success is True
+    assert err is None
+
+
+@pytest.mark.asyncio
+async def test_execute_action_click_fallback():
+    from unittest.mock import AsyncMock, MagicMock
+    from modules.ai.browser import _execute_action
+
+    page = MagicMock()
+    mock_locator_fail = MagicMock()
+    mock_locator_fail.click = AsyncMock(side_effect=Exception("not found"))
+    mock_locator_ok = MagicMock()
+    mock_locator_ok.first = MagicMock()
+    mock_locator_ok.first.click = AsyncMock()
+
+    page.get_by_role = MagicMock(return_value=mock_locator_fail)
+    page.get_by_text = MagicMock(return_value=mock_locator_ok)
+    page.wait_for_load_state = AsyncMock()
+
+    success, err = await _execute_action(page, {
+        "action": "click",
+        "selector": "Login",
+        "value": None,
+        "description": "Click login",
+    })
+
+    assert success is True

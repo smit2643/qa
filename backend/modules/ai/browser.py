@@ -132,6 +132,71 @@ def _extract_selector(params: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Custom agent — action executor
+# ---------------------------------------------------------------------------
+
+async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
+    """
+    Execute a single LLM-decided action in the Playwright page.
+    Returns (success, error_message).
+    """
+    act = action.get("action", "")
+    selector = action.get("selector") or ""
+    value = action.get("value") or ""
+
+    try:
+        if act == "navigate":
+            await page.goto(value, timeout=15000)
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        elif act == "click":
+            clicked = False
+            # Try role-based first (button, link)
+            for role in ("button", "link", "menuitem", "tab"):
+                try:
+                    await page.get_by_role(role, name=selector).click(timeout=5000)
+                    clicked = True
+                    break
+                except Exception:
+                    continue
+            if not clicked:
+                # Fallback to text match
+                await page.get_by_text(selector).first.click(timeout=5000)
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        elif act == "type":
+            filled = False
+            for method in (
+                lambda: page.get_by_label(selector).fill(value, timeout=5000),
+                lambda: page.get_by_placeholder(selector).fill(value, timeout=5000),
+                lambda: page.get_by_role("textbox", name=selector).fill(value, timeout=5000),
+            ):
+                try:
+                    await method()
+                    filled = True
+                    break
+                except Exception:
+                    continue
+            if not filled:
+                raise Exception(f"Could not find input field: {selector!r}")
+
+        elif act == "assert":
+            from playwright.async_api import expect
+            await expect(page.get_by_text(value)).to_be_visible(timeout=5000)
+
+        elif act == "done":
+            pass  # terminal — caller handles break
+
+        else:
+            pass  # unknown action — skip silently
+
+        return True, None
+
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point — run browser-use Agent
 # ---------------------------------------------------------------------------
 
@@ -223,5 +288,39 @@ def _get_browser_use_llm():
                 openai_api_key=settings.openai_api_key,
             )
 
+    elif provider == "ollama":
+        try:
+            from langchain_ollama import ChatOllama
+            from pydantic import Field as PydanticField
+
+            class _ChatOllamaWithProvider(ChatOllama):
+                provider: str = PydanticField(default="openai")
+                model_name: str = PydanticField(default="")
+
+                def model_post_init(self, __context: object) -> None:
+                    if not self.model_name:
+                        object.__setattr__(self, "model_name", self.model)
+
+                def __setattr__(self, name: str, value: object) -> None:
+                    try:
+                        super().__setattr__(name, value)
+                    except (ValueError, AttributeError):
+                        object.__setattr__(self, name, value)
+
+                def __getattr__(self, name: str) -> object:
+                    if name == "model_name":
+                        return self.model
+                    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+            return _ChatOllamaWithProvider(
+                model=settings.ollama_model,
+                base_url=settings.ollama_base_url,
+                client_kwargs={"headers": {"Authorization": f"Bearer {settings.ollama_api_key}"}},
+                provider="openai",
+                model_name=settings.ollama_model,
+            )
+        except ImportError:
+            raise ImportError("Install langchain-ollama: pip install langchain-ollama")
+
     else:
-        raise ValueError(f"Provider '{provider}' not supported for browser-use Agent. Use 'claude' or 'openai'.")
+        raise ValueError(f"Provider '{provider}' not supported for browser-use Agent. Use 'claude', 'openai', or 'ollama'.")
