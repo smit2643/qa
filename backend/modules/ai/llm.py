@@ -20,6 +20,8 @@ class LLMProvider:
             return await self._complete_openai(messages, system)
         elif self.provider == "gemini":
             return await self._complete_gemini(messages, system)
+        elif self.provider == "ollama":
+            return await self._complete_ollama(messages, system)
         else:
             raise ValueError(f"Unknown LLM provider: {self.provider!r}")
 
@@ -63,6 +65,45 @@ class LLMProvider:
             max_tokens=8096,
         )
         return response.choices[0].message.content
+
+    async def _complete_ollama(self, messages: list[dict], system: str) -> str:
+        import httpx
+        model = self.model or settings.ollama_model
+        all_messages = ([{"role": "system", "content": system}] + messages) if system else messages
+
+        # Convert OpenAI-style vision messages to Ollama format
+        ollama_messages = []
+        for msg in all_messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                # Vision message — extract text and base64 images
+                text_parts = []
+                images = []
+                for part in content:
+                    if part.get("type") == "text":
+                        text_parts.append(part["text"])
+                    elif part.get("type") == "image_url":
+                        url = part["image_url"]["url"]
+                        if url.startswith("data:"):
+                            # Strip data:image/png;base64, prefix
+                            images.append(url.split(",", 1)[1])
+                ollama_msg = {"role": msg["role"], "content": " ".join(text_parts)}
+                if images:
+                    ollama_msg["images"] = images
+                ollama_messages.append(ollama_msg)
+            else:
+                ollama_messages.append(msg)
+
+        payload = {"model": model, "messages": ollama_messages, "stream": False}
+        headers = {"Authorization": f"Bearer {settings.ollama_api_key}"}
+        async with httpx.AsyncClient(timeout=300) as client:
+            response = await client.post(
+                f"{settings.ollama_base_url}/api/chat",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response.json()["message"]["content"]
 
     async def _complete_gemini(self, messages: list[dict], system: str) -> str:
         from google import genai

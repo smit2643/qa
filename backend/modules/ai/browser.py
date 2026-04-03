@@ -1,12 +1,19 @@
 """Browser module — uses browser-use Agent to autonomously navigate apps and record real actions."""
 
+import base64
 import json
+import logging
 import os
+import re
 import tempfile
 from typing import Any
 
 from core.config import settings
 from modules.ai.llm import LLMProvider
+
+logger = logging.getLogger(__name__)
+
+MAX_CONSECUTIVE_FAILURES = 3
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +224,13 @@ async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
 _AGENT_SYSTEM = (
     "You are a browser automation agent. Look at the screenshot and decide "
     "the next single action to complete the task. "
-    "Respond with JSON only — no explanation, no markdown fences."
+    "Valid actions: click, type, navigate, assert, wait, done. "
+    "Use 'done' when the task is complete or impossible to complete. "
+    "Respond with a single JSON object only — no explanation, no markdown fences, no extra text."
 )
+
+
+_KNOWN_ACTIONS = {"click", "type", "navigate", "assert", "wait", "done"}
 
 
 async def _run_custom_agent(
@@ -232,8 +244,7 @@ async def _run_custom_agent(
     Takes screenshots, asks the LLM what to do, executes actions.
     Returns steps in our standard format.
     """
-    import base64
-    import re
+    from modules.extraction.normalizer import normalize_steps
 
     llm = LLMProvider()
     step_history: list[dict] = []
@@ -259,10 +270,11 @@ async def _run_custom_agent(
     last_error: str | None = None
 
     for _ in range(max_steps):
-        # Take screenshot
+        # Take screenshot — JPEG quality=60 to reduce payload vs PNG
         try:
-            screenshot_bytes = await page.screenshot(type="png", timeout=10000)
-        except Exception:
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=60, timeout=10000)
+        except Exception as exc:
+            logger.warning("Screenshot failed during agent loop: %s", exc)
             break
 
         img_b64 = base64.standard_b64encode(screenshot_bytes).decode()
@@ -270,7 +282,7 @@ async def _run_custom_agent(
 
         # Build history summary (last 5 steps to keep context short)
         history_summary = json.dumps([
-            {"action": s["action"], "description": s["description"]}
+            {"action": s["action"], "selector": s.get("selector"), "description": s["description"]}
             for s in step_history[-5:]
         ])
 
@@ -285,16 +297,16 @@ async def _run_custom_agent(
             '  "action": "click|type|navigate|assert|wait|done",\n'
             '  "selector": "visible text or label of the element (null if not needed)",\n'
             '  "value": "URL to navigate to or text to type (null if not needed)",\n'
-            '  "description": "what you are doing",\n'
-            '  "done": false\n'
+            '  "description": "what you are doing"\n'
             '}\n'
-            'Set done=true when the task is fully complete.'
+            'Use action="done" when the task is fully complete or impossible to complete.'
         )
 
+        # image_url content blocks are converted to Ollama's `images` array by _complete_ollama
         messages = [{
             "role": "user",
             "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
                 {"type": "text", "text": user_text},
             ],
         }]
@@ -312,11 +324,19 @@ async def _run_custom_agent(
                 if attempt == 0:
                     messages[-1]["content"][-1]["text"] += "\n\nYour last response was not valid JSON. Respond with JSON only."
                 else:
-                    action = {"action": "done", "selector": None, "value": None, "description": "LLM parse failed", "done": True}
+                    action = {"action": "done", "selector": None, "value": None, "description": "LLM parse failed"}
 
         # Stop if done
-        if action.get("done") or action.get("action") == "done":
+        if action.get("action") == "done":
             break
+
+        # Guard: skip unknown actions without resetting consecutive_failures
+        if action.get("action") not in _KNOWN_ACTIONS:
+            consecutive_failures += 1
+            last_error = f"Unknown action: {action.get('action')!r}"
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                break
+            continue
 
         # Execute action
         success, error = await _execute_action(page, action)
@@ -336,10 +356,9 @@ async def _run_custom_agent(
         else:
             consecutive_failures += 1
             last_error = error
-            if consecutive_failures >= 3:
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 break  # Stop gracefully
 
-    from modules.extraction.normalizer import normalize_steps
     return normalize_steps(step_history)
 
 
