@@ -363,28 +363,84 @@ async def _run_custom_agent(
 
 
 # ---------------------------------------------------------------------------
-# Main entry point — run browser-use Agent
+# Main entry point — run browser agent (dispatches by provider)
 # ---------------------------------------------------------------------------
 
 async def run_agent(
     task: str,
     target_url: str,
     storage_state_json: str | None = None,
-    max_steps: int = 20,
+    max_steps: int = 25,
 ) -> list[dict]:
     """
-    Run browser-use Agent to perform `task` starting at `target_url`.
+    Run the browser agent to perform `task` starting at `target_url`.
+    - For ollama: uses custom Playwright vision loop (_run_custom_agent)
+    - For claude/openai: uses browser_use.Agent
     Returns list of steps in our standard format.
-
-    If storage_state_json is provided, the browser starts authenticated.
     """
+    provider = settings.llm_provider
+
+    if provider == "ollama":
+        return await _run_agent_ollama(task, target_url, storage_state_json, max_steps)
+    else:
+        return await _run_agent_browser_use(task, target_url, storage_state_json, max_steps)
+
+
+async def _run_agent_ollama(
+    task: str,
+    target_url: str,
+    storage_state_json: str | None = None,
+    max_steps: int = 25,
+) -> list[dict]:
+    """Launch Playwright, apply auth state, run custom vision agent."""
+    from playwright.async_api import async_playwright
+
+    storage_file = None
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+
+            context_opts: dict = {}
+            if storage_state_json:
+                storage_file = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False
+                )
+                storage_file.write(storage_state_json)
+                storage_file.close()
+                context_opts["storage_state"] = storage_file.name
+
+            context = await browser.new_context(**context_opts)
+            page = await context.new_page()
+
+            steps = await _run_custom_agent(
+                task=task,
+                target_url=target_url,
+                page=page,
+                max_steps=max_steps,
+            )
+
+            await context.close()
+            await browser.close()
+            return steps
+
+    finally:
+        if storage_file and os.path.exists(storage_file.name):
+            os.unlink(storage_file.name)
+
+
+async def _run_agent_browser_use(
+    task: str,
+    target_url: str,
+    storage_state_json: str | None = None,
+    max_steps: int = 25,
+) -> list[dict]:
+    """Original browser_use.Agent path — for claude and openai providers."""
     from browser_use import Agent
     from browser_use.browser.profile import BrowserProfile
     from browser_use.browser.session import BrowserSession
 
     storage_file = None
     try:
-        # Build browser profile
         profile_kwargs: dict = {"headless": True}
 
         if storage_state_json:
@@ -397,7 +453,6 @@ async def run_agent(
 
         profile = BrowserProfile(**profile_kwargs)
         session = BrowserSession(browser_profile=profile)
-
         llm = _get_browser_use_llm()
 
         agent = Agent(

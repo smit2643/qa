@@ -115,6 +115,23 @@ def test_generate_requires_auth(client, auth_headers_with_suite):
     assert res.status_code == 401
 
 
+def test_generate_endpoint_with_mocked_run_agent(client, auth_headers_with_suite):
+    """run_agent is dispatched by service.generate_test — mock it and verify response."""
+    headers, suite_id = auth_headers_with_suite
+
+    with patch("modules.ai.browser.run_agent", new=AsyncMock(return_value=MOCK_STEPS)):
+        with patch("modules.ai.generator.generate_code", new=AsyncMock(return_value=MOCK_CODE)):
+            res = client.post("/api/v1/ai/generate", json={
+                "description": "user logs in with email and password",
+                "suite_id": suite_id,
+            }, headers=headers)
+
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["steps"]) == 3
+    assert data["code"] == MOCK_CODE
+
+
 # ---------------------------------------------------------------------------
 # /ai/generate-from-steps endpoint tests
 # ---------------------------------------------------------------------------
