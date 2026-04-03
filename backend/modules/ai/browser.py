@@ -140,8 +140,10 @@ async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
     Execute a single LLM-decided action in the Playwright page.
     Returns (success, error_message).
     """
+    from playwright.async_api import expect as pw_expect
+
     act = action.get("action", "")
-    selector = action.get("selector") or ""
+    selector = action.get("selector")  # keep None as None
     value = action.get("value") or ""
 
     try:
@@ -150,8 +152,9 @@ async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
             await page.wait_for_load_state("domcontentloaded", timeout=10000)
 
         elif act == "click":
+            if not selector:
+                raise Exception("click action requires a selector")
             clicked = False
-            # Try role-based first (button, link)
             for role in ("button", "link", "menuitem", "tab"):
                 try:
                     await page.get_by_role(role, name=selector).click(timeout=5000)
@@ -160,29 +163,39 @@ async def _execute_action(page: Any, action: dict) -> tuple[bool, str | None]:
                 except Exception:
                     continue
             if not clicked:
-                # Fallback to text match
                 await page.get_by_text(selector).first.click(timeout=5000)
             await page.wait_for_load_state("domcontentloaded", timeout=10000)
 
         elif act == "type":
+            if not selector:
+                raise Exception("type action requires a selector")
             filled = False
-            for method in (
-                lambda: page.get_by_label(selector).fill(value, timeout=5000),
-                lambda: page.get_by_placeholder(selector).fill(value, timeout=5000),
-                lambda: page.get_by_role("textbox", name=selector).fill(value, timeout=5000),
-            ):
+            try:
+                await page.get_by_label(selector).fill(value, timeout=5000)
+                filled = True
+            except Exception:
+                pass
+            if not filled:
                 try:
-                    await method()
+                    await page.get_by_placeholder(selector).fill(value, timeout=5000)
                     filled = True
-                    break
                 except Exception:
-                    continue
+                    pass
+            if not filled:
+                try:
+                    await page.get_by_role("textbox", name=selector).fill(value, timeout=5000)
+                    filled = True
+                except Exception:
+                    pass
             if not filled:
                 raise Exception(f"Could not find input field: {selector!r}")
 
         elif act == "assert":
-            from playwright.async_api import expect
-            await expect(page.get_by_text(value)).to_be_visible(timeout=5000)
+            await pw_expect(page.get_by_text(value)).to_be_visible(timeout=5000)
+
+        elif act == "wait":
+            ms = int(value) if value and str(value).isdigit() else 1000
+            await page.wait_for_timeout(ms)
 
         elif act == "done":
             pass  # terminal — caller handles break

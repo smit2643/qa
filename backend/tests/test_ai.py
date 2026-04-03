@@ -298,6 +298,63 @@ async def test_execute_action_navigate():
 
 
 @pytest.mark.asyncio
+async def test_execute_action_type_success():
+    from unittest.mock import AsyncMock, MagicMock
+    from modules.ai.browser import _execute_action
+
+    page = MagicMock()
+    mock_locator = MagicMock()
+    mock_locator.fill = AsyncMock()
+    page.get_by_label = MagicMock(return_value=mock_locator)
+
+    success, err = await _execute_action(page, {
+        "action": "type",
+        "selector": "Email",
+        "value": "user@test.com",
+        "description": "Type email",
+    })
+
+    assert success is True
+    assert err is None
+    mock_locator.fill.assert_called_once_with("user@test.com", timeout=5000)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_click_requires_selector():
+    from modules.ai.browser import _execute_action
+    from unittest.mock import MagicMock
+
+    page = MagicMock()
+    success, err = await _execute_action(page, {
+        "action": "click",
+        "selector": None,
+        "value": None,
+        "description": "click nothing",
+    })
+    assert success is False
+    assert "selector" in err.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_wait():
+    from unittest.mock import AsyncMock, MagicMock
+    from modules.ai.browser import _execute_action
+
+    page = MagicMock()
+    page.wait_for_timeout = AsyncMock()
+
+    success, err = await _execute_action(page, {
+        "action": "wait",
+        "selector": None,
+        "value": "2000",
+        "description": "Wait 2 seconds",
+    })
+
+    assert success is True
+    page.wait_for_timeout.assert_called_once_with(2000)
+
+
+@pytest.mark.asyncio
 async def test_execute_action_done():
     from unittest.mock import MagicMock
     from modules.ai.browser import _execute_action
