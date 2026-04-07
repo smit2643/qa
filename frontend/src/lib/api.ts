@@ -277,6 +277,30 @@ export const videos = {
   },
 };
 
+// ─── Code Import ─────────────────────────────────────────────────────────────
+
+export const imports = {
+  fromCode: (data: {
+    suite_id: string;
+    test_name: string;
+    source_code: string;
+    source_language?: string;
+  }) =>
+    request<{
+      test_id: string;
+      suite_id: string;
+      test_name: string;
+      source_language: string;
+      steps: unknown[];
+      code: string;
+      version: number;
+      message: string;
+    }>('/imports/code', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
 // ─── Runs ────────────────────────────────────────────────────────────────────
 
 export const runs = {

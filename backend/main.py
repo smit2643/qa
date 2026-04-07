@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     from modules.recordings.router import router as recordings_router
     from modules.videos.router import router as videos_router
     from modules.runs.router import router as runs_router
+    from modules.imports.router import router as imports_router
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(orgs_router, prefix="/api/v1")
     app.include_router(projects_router, prefix="/api/v1")
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(recordings_router, prefix="/api/v1")
     app.include_router(videos_router, prefix="/api/v1")
     app.include_router(runs_router, prefix="/api/v1")
+    app.include_router(imports_router, prefix="/api/v1")
 
     @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
     def chrome_devtools():

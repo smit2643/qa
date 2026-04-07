@@ -8,6 +8,7 @@ class InputMethod(str, enum.Enum):
     text = "text"
     recording = "recording"
     video = "video"
+    code_import = "code_import"
 
 class TestCase(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "test_cases"
