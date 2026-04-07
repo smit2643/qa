@@ -9,7 +9,7 @@ Copy `.env.example` to `.env` and fill in all values before starting services.
 | Variable | Example | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://bug0:pass@localhost:5434/bug0db` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
+| `REDIS_URL` | `redis://:bug0redis@localhost:6380/0` | Redis connection string (port 6380 on host — avoids conflict with other apps on 6379) |
 | `SECRET_KEY` | `<32+ random chars>` | JWT signing key — never reuse across envs |
 | `FRONTEND_URL` | `http://localhost:3000` | Used for CORS and redirect URLs |
 
@@ -30,7 +30,7 @@ Copy `.env.example` to `.env` and fill in all values before starting services.
 
 | Variable | Dev Default | Description |
 |---|---|---|
-| `MINIO_ENDPOINT` | `minio:9000` | MinIO host:port (or S3 endpoint for prod) |
+| `MINIO_ENDPOINT` | `localhost:9000` | MinIO host:port (or S3 endpoint for prod) |
 | `MINIO_ACCESS_KEY` | `bug0minio` | Access key |
 | `MINIO_SECRET_KEY` | `bug0miniopass` | Secret key |
 | `MINIO_BUCKET` | `bug0-artifacts` | Bucket for videos, logs, traces |

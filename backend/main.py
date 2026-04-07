@@ -53,6 +53,14 @@ def create_app() -> FastAPI:
     app.include_router(videos_router, prefix="/api/v1")
     app.include_router(runs_router, prefix="/api/v1")
 
+    @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
+    def chrome_devtools():
+        return {}
+
+    @app.get("/", tags=["system"])
+    def root():
+        return {"name": "Bug0 API", "docs": "/api/docs", "health": "/health"}
+
     @app.get("/health", tags=["system"])
     def health():
         return {"status": "ok", "environment": settings.environment}

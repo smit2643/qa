@@ -58,6 +58,7 @@ require_role(db, user_id, org_id, Role.member)  # raises 403 if insufficient
 | Method | Path | Description | Min Role |
 |---|---|---|---|
 | `POST` | `/api/v1/projects` | Create a project | member |
+| `GET` | `/api/v1/projects` | List all projects across all user's orgs | viewer |
 | `GET` | `/api/v1/organizations/{org_id}/projects` | List all projects in an org | viewer |
 | `GET` | `/api/v1/projects/{project_id}` | Get a single project | viewer |
 | `PATCH` | `/api/v1/projects/{project_id}` | Update project name or target URL | admin |

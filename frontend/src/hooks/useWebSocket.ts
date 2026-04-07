@@ -18,10 +18,19 @@ export function useWebSocket(runId: string | null, options: UseWebSocketOptions 
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const { onEvent, autoConnect = true } = options;
+  const { autoConnect = true } = options;
+
+  // Store onEvent in a ref so connect() never needs to depend on it.
+  // This prevents the WebSocket from closing/reopening on every render.
+  const onEventRef = useRef(options.onEvent);
+  useEffect(() => {
+    onEventRef.current = options.onEvent;
+  });
 
   const connect = useCallback(() => {
     if (!runId) return;
+    // Don't open a second connection if already open
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
     const url = `${WS_BASE}/api/v1/ws/runs/${runId}/stream`;
     const ws = new WebSocket(url);
@@ -34,9 +43,11 @@ export function useWebSocket(runId: string | null, options: UseWebSocketOptions 
 
     ws.onmessage = (e) => {
       try {
-        const event: WsEvent = JSON.parse(e.data);
+        const raw = JSON.parse(e.data);
+        // Normalise: backend sends "event" field, expose it as both event and type
+        const event: WsEvent = { ...raw, type: raw.type ?? raw.event };
         setEvents((prev) => [...prev, event]);
-        onEvent?.(event);
+        onEventRef.current?.(event);
       } catch {
         // ignore malformed messages
       }
@@ -50,7 +61,7 @@ export function useWebSocket(runId: string | null, options: UseWebSocketOptions 
     ws.onclose = () => {
       setConnected(false);
     };
-  }, [runId, onEvent]);
+  }, [runId]); // onEvent intentionally excluded — stored in ref above
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
@@ -61,11 +72,15 @@ export function useWebSocket(runId: string | null, options: UseWebSocketOptions 
   const clearEvents = useCallback(() => setEvents([]), []);
 
   useEffect(() => {
-    if (autoConnect && runId) {
-      connect();
-    }
+    if (!autoConnect || !runId) return;
+    // Small delay prevents React StrictMode double-mount from closing mid-handshake
+    const timer = setTimeout(() => connect(), 100);
     return () => {
-      wsRef.current?.close();
+      clearTimeout(timer);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [runId, autoConnect, connect]);
 

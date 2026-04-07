@@ -14,7 +14,7 @@ Separate Python service — Celery workers that execute Playwright tests, captur
 | `workers/test_runner.py` | Celery task definition (`run_test_task`) |
 | `executor/playwright_executor.py` | Executes test code in isolated browser context |
 | `executor/recorder.py` | Finds recorded video file after context close |
-| `healer/selector_healer.py` | Calls backend `/ai/heal` on selector failure |
+| `healer/selector_healer.py` | Calls backend `/ai/heal` on selector failure (planned for Phase 6 — not yet implemented) |
 | `storage/artifact_uploader.py` | Uploads video/logs/traces to MinIO/S3 |
 
 ---
@@ -114,8 +114,10 @@ bug0-artifacts/
 ## Running Locally (without Docker)
 
 ```bash
-cd runner
-pip install -e ".[dev]"
-playwright install chromium
-celery -A celery_app worker --loglevel=info --concurrency=2
+# Must run from project root so Python can find the runner module
+cd /path/to/qa
+source backend/.venv/bin/activate
+pip install python-dotenv  # if not already installed
+REDIS_URL="redis://:bug0redis@localhost:6380/0" BACKEND_URL="http://localhost:8080" MINIO_ENDPOINT="localhost:9000" \
+  python -m celery -A runner.celery_app worker --loglevel=info --concurrency=2
 ```

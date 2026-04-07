@@ -68,6 +68,9 @@ class LLMProvider:
 
     async def _complete_ollama(self, messages: list[dict], system: str) -> str:
         import httpx
+        import logging
+        logger = logging.getLogger(__name__)
+
         model = self.model or settings.ollama_model
         all_messages = ([{"role": "system", "content": system}] + messages) if system else messages
 
@@ -85,7 +88,7 @@ class LLMProvider:
                     elif part.get("type") == "image_url":
                         url = part["image_url"]["url"]
                         if url.startswith("data:"):
-                            # Strip data:image/png;base64, prefix
+                            # Strip data:image/jpeg;base64, prefix
                             images.append(url.split(",", 1)[1])
                 ollama_msg = {"role": msg["role"], "content": " ".join(text_parts)}
                 if images:
@@ -94,16 +97,27 @@ class LLMProvider:
             else:
                 ollama_messages.append(msg)
 
+        # Build correct Ollama API URL:
+        # base_url may be "https://api.ollama.com/v1" (OpenAI-compat) or "https://api.ollama.com"
+        # Native Ollama chat endpoint is always at /api/chat (no /v1)
+        base = settings.ollama_base_url.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]  # strip /v1 — not part of native Ollama API path
+        api_url = f"{base}/api/chat"
+
         payload = {"model": model, "messages": ollama_messages, "stream": False}
         headers = {"Authorization": f"Bearer {settings.ollama_api_key}"}
+
+        print(f"[LLM] Ollama → {api_url}  model={model}  msgs={len(ollama_messages)}")
         async with httpx.AsyncClient(timeout=300) as client:
-            response = await client.post(
-                f"{settings.ollama_base_url}/api/chat",
-                json=payload,
-                headers=headers,
-            )
-            response.raise_for_status()
-            return response.json()["message"]["content"]
+            response = await client.post(api_url, json=payload, headers=headers)
+            if response.status_code != 200:
+                body = response.text[:500]
+                print(f"[LLM] Ollama HTTP {response.status_code}: {body}")
+                raise RuntimeError(f"Ollama API returned HTTP {response.status_code}: {body}")
+            result = response.json()["message"]["content"]
+            print(f"[LLM] Ollama response ({len(result)} chars): {result[:300]}")
+            return result
 
     async def _complete_gemini(self, messages: list[dict], system: str) -> str:
         from google import genai

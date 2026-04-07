@@ -134,11 +134,23 @@ export const suites = {
     }),
 
   list: (projectId: string) =>
-    request<TestSuite[]>(`/suites?project_id=${projectId}`),
+    request<TestSuite[]>(`/projects/${projectId}/suites`),
 
   get: (id: string) => request<TestSuite>(`/suites/${id}`),
 
   runs: (suiteId: string) => request<TestRun[]>(`/suites/${suiteId}/runs`),
+
+  setLoginConfig: (id: string, data: { login_url: string; login_email: string; login_password: string }) =>
+    request<TestSuite>(`/suites/${id}/login-config`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  clearLoginConfig: (id: string) =>
+    request<TestSuite>(`/suites/${id}/login-config`, { method: 'DELETE' }),
+
+  clearAuthState: (id: string) =>
+    request<TestSuite>(`/suites/${id}/auth-state`, { method: 'DELETE' }),
 };
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -151,7 +163,7 @@ export const tests = {
     }),
 
   list: (suiteId: string) =>
-    request<TestCase[]>(`/tests?suite_id=${suiteId}`),
+    request<TestCase[]>(`/suites/${suiteId}/tests`),
 
   get: (id: string) => request<TestCase>(`/tests/${id}`),
 
@@ -187,7 +199,7 @@ export const steps = {
 // ─── AI ──────────────────────────────────────────────────────────────────────
 
 export const ai = {
-  generate: (data: { description: string; suite_id: string }) =>
+  generate: (data: { description: string; suite_id: string; test_id?: string }) =>
     request<GenerateResponse>('/ai/generate', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -196,6 +208,7 @@ export const ai = {
   generateFromSteps: (data: {
     suite_id: string;
     test_name: string;
+    test_id?: string;
     steps: StepInput[];
     input_method: string;
   }) =>
@@ -267,7 +280,7 @@ export const videos = {
 // ─── Runs ────────────────────────────────────────────────────────────────────
 
 export const runs = {
-  create: (data: { suite_id: string; browser: string }) =>
+  create: (data: { suite_id: string; browser: string; test_ids?: string[]; use_playwright_code?: boolean }) =>
     request<TestRun>('/runs', {
       method: 'POST',
       body: JSON.stringify(data),

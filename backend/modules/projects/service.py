@@ -35,6 +35,13 @@ def list_projects(db: Session, user_id: str, org_id: str) -> list[Project]:
     return db.query(Project).filter(Project.organization_id == org_id).all()
 
 
+def list_all_projects(db: Session, user_id: str) -> list[Project]:
+    """Return all projects the user can access across all their organizations."""
+    from models import Membership
+    org_ids = db.query(Membership.organization_id).filter(Membership.user_id == user_id).subquery()
+    return db.query(Project).filter(Project.organization_id.in_(org_ids)).all()
+
+
 def get_project(db: Session, user_id: str, project_id: str) -> Project:
     project = _get_project_or_404(db, project_id)
     _check_project_access(db, user_id, project, Role.viewer)

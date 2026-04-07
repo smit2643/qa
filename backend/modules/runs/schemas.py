@@ -10,6 +10,7 @@ class RunCreate(BaseModel):
     test_ids: list[str] | None = None  # None = run all tests in suite
     branch: str | None = None
     commit_sha: str | None = None
+    use_playwright_code: bool = False  # True = run generated/edited code directly; False = Ollama vision agent
 
 
 class ResultResponse(BaseModel):

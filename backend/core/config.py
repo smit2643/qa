@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql://bug0:bug0pass@localhost:5432/bug0db"
     # Redis
-    redis_url: str = "redis://:bug0redis@localhost:6379/0"
+    redis_url: str = "redis://:bug0redis@localhost:6380/0"
     redis_password: str = "bug0redis"
     # MinIO / S3
     minio_endpoint: str = "localhost:9000"
@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     google_api_key: str = ""
+    ollama_api_key: str = ""
+    ollama_base_url: str = "https://api.ollama.com/v1"
+    ollama_model: str = "qwen3.5"
     llm_provider: str = "claude"
     # Billing
     stripe_secret_key: str = ""

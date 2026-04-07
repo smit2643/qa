@@ -103,16 +103,31 @@ async def stream_run_logs(websocket: WebSocket, run_id: str):
         pubsub = r.pubsub()
         await pubsub.subscribe(f"run:{run_id}:logs")
 
+        idle_seconds = 0
+        max_idle = 300  # close after 5 min of no messages
+
         try:
-            while True:
-                message = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
-                    timeout=2.0,
-                )
-                if message and message["type"] == "message":
-                    await websocket.send_text(message["data"].decode())
-        except asyncio.TimeoutError:
-            pass
+            while idle_seconds < max_idle:
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
+                        timeout=2.0,
+                    )
+                    if message and message["type"] == "message":
+                        await websocket.send_text(message["data"].decode())
+                        idle_seconds = 0
+                        # Stop streaming only on run-level completion events
+                        # ("finished" is per-result — do NOT break on it)
+                        try:
+                            data = json.loads(message["data"].decode())
+                            if data.get("event") in ("run_passed", "run_failed"):
+                                break
+                        except Exception:
+                            pass
+                    else:
+                        idle_seconds += 2
+                except asyncio.TimeoutError:
+                    idle_seconds += 2
         except WebSocketDisconnect:
             pass
         finally:
@@ -120,7 +135,6 @@ async def stream_run_logs(websocket: WebSocket, run_id: str):
             await r.aclose()
 
     except ImportError:
-        # redis not available — just hold the connection open briefly
         await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass

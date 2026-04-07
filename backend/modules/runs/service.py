@@ -76,7 +76,7 @@ def create_run(
     db.add(run)
     db.flush()
 
-    # Determine which tests to run
+    # Determine which tests to run — only include tests that have generated code
     if data.test_ids:
         tests = db.query(TestCase).filter(
             TestCase.id.in_(data.test_ids),
@@ -85,8 +85,14 @@ def create_run(
     else:
         tests = db.query(TestCase).filter(TestCase.suite_id == data.suite_id).all()
 
+    # Filter out tests with no code — these are recordings/imports that haven't been generated yet
+    tests = [t for t in tests if t.code and t.code.strip()]
+
     if not tests:
-        raise HTTPException(status_code=422, detail="No test cases found to run")
+        raise HTTPException(
+            status_code=422,
+            detail="No runnable tests found. Generate code for your tests first using the Generate button.",
+        )
 
     results = []
     for test in tests:
@@ -103,33 +109,77 @@ def create_run(
     db.refresh(run)
 
     # Dispatch Celery tasks (after commit so IDs are stable)
-    _dispatch_tasks(run, results, suite)
+    _dispatch_tasks(run, results, suite, use_playwright_code=data.use_playwright_code)
 
     return run
 
 
-def _dispatch_tasks(run: TestRun, results: list, suite: TestSuite) -> None:
-    """Dispatch one Celery task per (test, result) pair."""
+def _dispatch_tasks(run: TestRun, results: list, suite: TestSuite, use_playwright_code: bool = False) -> None:
+    """
+    Dispatch one sequential Celery task for the whole suite.
+
+    Tests run one after another; each test's browser session (cookies,
+    localStorage) is captured and injected into the next test so repeated
+    logins are eliminated.  A single-test run uses the same task but with
+    a one-item list.
+    """
+    import sys
+    from pathlib import Path
+    project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
     from runner.celery_app import celery_app
 
     target_url: str = suite.project.target_url
-    storage_state: str | None = getattr(suite.project, "storage_state_json", None)
 
-    for test, result in results:
-        celery_app.send_task(
-            "runner.run_test",
-            kwargs={
-                "run_id": run.id,
-                "result_id": result.id,
-                "test_code": test.code or "",
-                "test_name": test.name,
-                "target_url": target_url,
-                "browser": run.browser.value,
-                "storage_state_json": storage_state,
-            },
-        )
+    # Suite-level auth takes priority over project-level storage state
+    initial_storage_state: str | None = (
+        getattr(suite, "storage_state_json", None)
+        or getattr(suite.project, "storage_state_json", None)
+    )
+    login_url: str | None = getattr(suite, "login_url", None)
+    login_email: str | None = getattr(suite, "login_email", None)
+    login_password: str | None = getattr(suite, "login_password", None)
 
-    # Transition run to running now that tasks are dispatched
+    # Build ordered list for the worker
+    tests_payload = [
+        {
+            "result_id": result.id,
+            "test_name": test.name,
+            "test_description": test.description or "",
+            # Always include both code and steps — worker chooses based on use_playwright_code flag
+            "test_code": test.code or "",
+            "steps": [
+                {
+                    "order": s.order,
+                    "action": s.action,
+                    "selector": s.selector or "",
+                    "value": s.value or "",
+                    "description": s.description or "",
+                }
+                for s in sorted(test.steps, key=lambda x: x.order)
+            ],
+        }
+        for test, result in results
+    ]
+
+    celery_app.send_task(
+        "runner.run_suite_sequential",
+        kwargs={
+            "run_id": run.id,
+            "suite_id": suite.id,
+            "tests": tests_payload,
+            "target_url": target_url,
+            "browser": run.browser.value,
+            "initial_storage_state": initial_storage_state,
+            "login_url": login_url,
+            "login_email": login_email,
+            "login_password": login_password,
+            "use_playwright_code": use_playwright_code,
+        },
+    )
+
+    # Transition run to running now that task is dispatched
     from core.database import SessionLocal
     with SessionLocal() as db2:
         r = db2.query(TestRun).filter(TestRun.id == run.id).first()
@@ -206,8 +256,18 @@ def finish_run(db: Session, run_id: str, status: str) -> TestRun:
 
 
 def _maybe_finish_run(db: Session, run_id: str) -> None:
-    """If all results are resolved (not pending), mark the run passed/failed."""
-    run = db.query(TestRun).filter(TestRun.id == run_id).first()
+    """If all results are resolved (not pending), mark the run passed/failed.
+
+    Uses SELECT FOR UPDATE to prevent two concurrent worker callbacks from
+    both seeing 0 pending results and both publishing run_passed.
+    """
+    # Lock the run row so only one concurrent callback can evaluate completion
+    run = (
+        db.query(TestRun)
+        .filter(TestRun.id == run_id)
+        .with_for_update()
+        .first()
+    )
     if not run or run.status not in (RunStatus.running, RunStatus.queued):
         return
 
@@ -224,6 +284,23 @@ def _maybe_finish_run(db: Session, run_id: str) -> None:
         TestResult.status == ResultStatus.failed,
     ).count()
 
-    run.status = RunStatus.failed if failed > 0 else RunStatus.passed
+    final_status = RunStatus.failed if failed > 0 else RunStatus.passed
+    run.status = final_status
     run.finished_at = datetime.now(timezone.utc)
     db.commit()
+
+    # Publish run-level completion event so the WebSocket stream closes cleanly
+    _publish_run_event(run_id, final_status.value)
+
+
+def _publish_run_event(run_id: str, status: str) -> None:
+    """Publish run_passed / run_failed to Redis so the WebSocket stream closes."""
+    try:
+        import redis as redis_lib
+        from core.config import settings
+        r = redis_lib.from_url(settings.redis_url)
+        import json
+        event = "run_passed" if status == "passed" else "run_failed"
+        r.publish(f"run:{run_id}:logs", json.dumps({"event": event, "status": status}))
+    except Exception:
+        pass  # Never crash the API over a publish failure

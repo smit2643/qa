@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -11,13 +11,19 @@ import {
   Copy,
   Check,
   Sparkles,
+  PlayCircle,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StepEditor } from '@/components/tests/StepEditor';
-import { tests, steps, projects, suites } from '@/lib/api';
+import { LiveStream } from '@/components/runs/LiveStream';
+import { tests, steps, projects, suites, runs } from '@/lib/api';
 import type { TestCase, TestStep, Project, TestSuite } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
@@ -39,6 +45,11 @@ export default function TestDetailPage() {
   const [activeView, setActiveView] = useState<'steps' | 'code'>('steps');
   const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  // Background run state — set when StepEditor triggers a run after Generate Code
+  const [bgRunId, setBgRunId] = useState<string | null>(null);
+  const [bgRunStatus, setBgRunStatus] = useState<'running' | 'passed' | 'failed' | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -79,6 +90,28 @@ export default function TestDetailPage() {
     setCode(newCode);
     setActiveView('code');
   };
+
+  const handleRunStarted = (runId: string) => {
+    // Clear any previous run
+    if (pollRef.current) clearInterval(pollRef.current);
+    setBgRunId(runId);
+    setBgRunStatus('running');
+
+    // Poll until complete
+    pollRef.current = setInterval(async () => {
+      try {
+        const run = await runs.get(runId);
+        if (run.status === 'passed' || run.status === 'failed') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setBgRunStatus(run.status as 'passed' | 'failed');
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  };
+
+  // Cleanup poll on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   return (
     <AppLayout title={test?.name ?? 'Test'}>
@@ -158,6 +191,50 @@ export default function TestDetailPage() {
           </button>
         </div>
 
+        {/* Inline run result — appears after Generate Code is clicked */}
+        {bgRunId && (
+          <div className={`rounded-lg border p-4 space-y-3 transition-all ${
+            bgRunStatus === 'passed' ? 'border-green-500/30 bg-green-500/5' :
+            bgRunStatus === 'failed' ? 'border-red-500/30 bg-red-500/5' :
+            'border-violet-500/30 bg-violet-500/5'
+          }`}>
+            {/* Status header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {bgRunStatus === 'running' && <Loader2 className="h-4 w-4 text-violet-400 animate-spin" />}
+                {bgRunStatus === 'passed'  && <CheckCircle className="h-4 w-4 text-green-400" />}
+                {bgRunStatus === 'failed'  && <XCircle className="h-4 w-4 text-red-400" />}
+                <span className="text-sm font-medium text-white">
+                  {bgRunStatus === 'running' && 'Running test…'}
+                  {bgRunStatus === 'passed'  && 'Test passed'}
+                  {bgRunStatus === 'failed'  && 'Test failed — fix the steps above and click Generate Code again'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {bgRunStatus !== 'running' && (
+                  <button
+                    onClick={() => window.open(`/runs/${bgRunId}`, '_blank')}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
+                  >
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    Full results
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  onClick={() => { setBgRunId(null); setBgRunStatus(null); }}
+                  className="text-xs text-gray-600 hover:text-gray-400"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Live log stream */}
+            <LiveStream runId={bgRunId} />
+          </div>
+        )}
+
         {/* Content */}
         {isLoading ? (
           <div className="h-64 animate-pulse rounded-xl bg-white/[0.03]" />
@@ -181,9 +258,11 @@ export default function TestDetailPage() {
                 <CardContent>
                   <StepEditor
                     testId={params.testId}
+                    testName={test?.name}
                     suiteId={params.suiteId}
                     initialSteps={testSteps}
                     onCodeGenerated={handleCodeGenerated}
+                    onRunStarted={handleRunStarted}
                   />
                 </CardContent>
               </Card>

@@ -19,6 +19,14 @@ def create_project(
     return service.create_project(db, current_user.id, body)
 
 
+@router.get("/projects", response_model=list[ProjectResponse])
+def list_all_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return service.list_all_projects(db, current_user.id)
+
+
 @router.get("/organizations/{org_id}/projects", response_model=list[ProjectResponse])
 def list_projects(
     org_id: str,

@@ -17,11 +17,27 @@ def get_s3_client():
 
 
 def ensure_bucket(s3_client, bucket: str) -> None:
-    """Create bucket if it doesn't exist."""
+    """Create bucket if it doesn't exist and set public read policy."""
+    import json
     try:
         s3_client.head_bucket(Bucket=bucket)
     except Exception:
         s3_client.create_bucket(Bucket=bucket)
+
+    # Set public read policy so browser can load video/screenshots directly
+    public_policy = json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": ["s3:GetObject"],
+            "Resource": [f"arn:aws:s3:::{bucket}/*"],
+        }],
+    })
+    try:
+        s3_client.put_bucket_policy(Bucket=bucket, Policy=public_policy)
+    except Exception:
+        pass  # may already be set
 
 
 def upload_file(

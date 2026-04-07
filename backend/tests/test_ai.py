@@ -333,7 +333,7 @@ async def test_execute_action_type_success():
 
     assert success is True
     assert err is None
-    mock_locator.fill.assert_called_once_with("user@test.com", timeout=5000)
+    mock_locator.fill.assert_called_once_with("user@test.com", timeout=3000)
 
 
 @pytest.mark.asyncio

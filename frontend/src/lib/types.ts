@@ -27,6 +27,9 @@ export interface TestSuite {
   id: string;
   name: string;
   project_id: string;
+  login_url: string | null;
+  login_email: string | null;
+  has_auth_state: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +98,7 @@ export interface VideoUploadResponse {
 }
 
 export interface StepInput {
+  order: number;
   action: string;
   selector: string;
   value: string;
@@ -105,8 +109,13 @@ export type RunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error';
 export type TestStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error';
 
 export interface WsEvent {
-  type: string;
+  // Backend sends "event" field (started/finished/run_passed/run_failed/log/error)
+  event?: string;
+  // Keep "type" as alias so existing code that checks event.type still works
+  type?: string;
   message?: string;
+  line?: string;
+  test_name?: string;
   test_id?: string;
   result_id?: string;
   status?: string;

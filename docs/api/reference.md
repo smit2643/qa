@@ -117,6 +117,13 @@ List all projects in an org.
 
 ---
 
+### GET `/projects` 🔒
+List all projects the current user can access across all their organizations.
+
+**Response:** Array of project objects.
+
+---
+
 ### GET `/projects/{project_id}` 🔒
 
 ---

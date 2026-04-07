@@ -40,13 +40,17 @@ async def process_video(
 
     target_url: str = project.target_url
 
-    # 3. Extract steps via Claude Vision (reuse recordings extractor)
+    # 3. Extract steps via LLM Vision (reuse recordings extractor)
+    # Pass suite login credentials so extractor can prepend login steps if video doesn't show login
     llm = LLMProvider()
     steps = await extract_steps_from_video(
         video_bytes=video_bytes,
         target_url=target_url,
         llm=llm,
         sample_interval_seconds=sample_interval,
+        login_email=getattr(suite, "login_email", None),
+        login_password=getattr(suite, "login_password", None),
+        login_url=getattr(suite, "login_url", None),
     )
 
     # 4. Create TestCase — no code yet, user reviews steps first

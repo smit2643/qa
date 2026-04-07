@@ -52,28 +52,29 @@ export default function RunDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
 
-  const loadRun = useCallback(async () => {
+  // Fetch run status (and build test map on first load)
+  const loadRun = useCallback(async (buildTestMap = false) => {
     if (!params.runId) return;
     try {
       const runData = await runs.get(params.runId);
       setRun(runData);
 
-      // Determine if run is still in progress
-      const alive = runData.status === 'running' || runData.status === 'pending';
+      const alive = runData.status === 'running' || runData.status === 'queued';
       setIsLive(alive);
 
-      // Build test map from results
-      const testIds = [...new Set(runData.results.map((r) => r.test_id))];
-      const testEntries = await Promise.allSettled(
-        testIds.map((id) => tests.get(id))
-      );
-      const map: Record<string, TestCase> = {};
-      testEntries.forEach((entry, i) => {
-        if (entry.status === 'fulfilled') {
-          map[testIds[i]] = entry.value;
-        }
-      });
-      setTestMap(map);
+      if (buildTestMap) {
+        const testIds = [...new Set(runData.results.map((r) => r.test_id))];
+        const testEntries = await Promise.allSettled(
+          testIds.map((id) => tests.get(id))
+        );
+        const map: Record<string, TestCase> = {};
+        testEntries.forEach((entry, i) => {
+          if (entry.status === 'fulfilled') {
+            map[testIds[i]] = entry.value;
+          }
+        });
+        setTestMap(map);
+      }
     } catch (err) {
       toast({
         variant: 'destructive',
@@ -85,20 +86,24 @@ export default function RunDetailPage() {
     }
   }, [params.runId, toast]);
 
+  // Initial load (with test map)
   useEffect(() => {
-    loadRun();
+    loadRun(true);
   }, [loadRun]);
 
+  // Poll every 2s while the run is active — reliable fallback if WS closes early
+  useEffect(() => {
+    if (!isLive) return;
+    const interval = setInterval(() => loadRun(false), 2000);
+    return () => clearInterval(interval);
+  }, [isLive, loadRun]);
+
+  // WS events: backend sends "event" field — also available as "type" via the hook normalisation
   const handleWsEvent = useCallback(
     (event: WsEvent) => {
-      // Refresh run data when status events arrive
-      if (
-        event.type === 'run_passed' ||
-        event.type === 'run_failed' ||
-        event.type === 'test_passed' ||
-        event.type === 'test_failed'
-      ) {
-        loadRun();
+      const ev = event.event ?? event.type ?? '';
+      if (ev === 'run_passed' || ev === 'run_failed' || ev === 'finished') {
+        loadRun(false);
       }
     },
     [loadRun]

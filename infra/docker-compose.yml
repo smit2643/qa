@@ -1,4 +1,3 @@
-uvicorn main:app --reload --port 8080
 version: "3.9"
 
 services:
@@ -22,6 +21,8 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --requirepass ${REDIS_PASSWORD:-bug0redis}
+    ports:
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-bug0redis}", "ping"]
       interval: 10s

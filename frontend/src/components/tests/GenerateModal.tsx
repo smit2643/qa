@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Wand2, Mic, Film, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -71,19 +70,26 @@ export function GenerateModal({
       toast({ variant: 'destructive', title: 'Enter a description first' });
       return;
     }
+    if (isGenerating) return;
 
     setIsGenerating(true);
     try {
+      // AI agent navigates app, records steps, generates Playwright code
       const result = await ai.generate({
         description: description.trim(),
         suite_id: suiteId,
       });
-      toast({
-        title: 'Test generated!',
-        description: `${result.steps.length} steps created`,
-      });
+
       onSuccess?.(result);
       onOpenChange(false);
+      setDescription('');
+
+      toast({
+        title: 'Test generated',
+        description: 'Review the steps, edit if needed, then click Generate Code to run it.',
+      });
+
+      // Go to test detail page — user reviews steps before running
       router.push(`/projects/${projectId}/suites/${suiteId}/tests/${result.test_id}`);
     } catch (err) {
       toast({

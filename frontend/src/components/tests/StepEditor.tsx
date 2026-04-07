@@ -31,6 +31,9 @@ import {
   Eye,
   Navigation,
   CheckSquare,
+  Wand2,
+  Mic,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,8 +44,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { steps as stepsApi, ai } from '@/lib/api';
+import { steps as stepsApi, ai, runs } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
+import { RecordingCapture } from '@/components/tests/RecordingCapture';
 import type { TestStep } from '@/lib/types';
 
 const ACTIONS = [
@@ -162,21 +166,31 @@ function SortableStep({ step, index, onUpdate, onDelete }: SortableStepProps) {
 
 interface StepEditorProps {
   testId: string;
+  testName?: string;
   suiteId: string;
   initialSteps?: TestStep[];
   onCodeGenerated?: (code: string) => void;
+  onRunStarted?: (runId: string) => void;
 }
 
 export function StepEditor({
   testId,
+  testName,
   suiteId,
   initialSteps = [],
   onCodeGenerated,
+  onRunStarted,
 }: StepEditorProps) {
   const { toast } = useToast();
   const [stepRows, setStepRows] = useState<StepRow[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Regenerate panel state
+  const [showRegenerate, setShowRegenerate] = useState(false);
+  const [regenMode, setRegenMode] = useState<'describe' | 'record'>('describe');
+  const [regenDescription, setRegenDescription] = useState('');
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -238,7 +252,8 @@ export function StepEditor({
     try {
       await stepsApi.bulkReplace(
         testId,
-        stepRows.map((s) => ({
+        stepRows.map((s, i) => ({
+          order: i,
           action: s.action,
           selector: s.selector,
           value: s.value,
@@ -271,8 +286,10 @@ export function StepEditor({
     try {
       const result = await ai.generateFromSteps({
         suite_id: suiteId,
-        test_name: `Test ${testId}`,
-        steps: stepRows.map((s) => ({
+        test_name: testName || `Test ${testId}`,
+        test_id: testId,
+        steps: stepRows.map((s, i) => ({
+          order: i,
           action: s.action,
           selector: s.selector,
           value: s.value,
@@ -280,11 +297,27 @@ export function StepEditor({
         })),
         input_method: 'manual',
       });
-      toast({
-        title: 'Code generated!',
-        description: `Version ${result.version}`,
-      });
       onCodeGenerated?.(result.code);
+
+      // Auto-run using Playwright code immediately after generation
+      try {
+        const run = await runs.create({
+          suite_id: suiteId,
+          browser: 'chromium',
+          test_ids: [testId],
+          use_playwright_code: true,
+        });
+        toast({
+          title: 'Code generated — running test…',
+          description: 'Check the result below. If it fails, fix the steps and regenerate.',
+        });
+        onRunStarted?.(run.id);
+      } catch {
+        toast({
+          title: 'Code generated!',
+          description: `Version ${result.version}. Click Run to test it.`,
+        });
+      }
     } catch (err) {
       toast({
         variant: 'destructive',
@@ -293,6 +326,43 @@ export function StepEditor({
       });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!regenDescription.trim()) {
+      toast({ variant: 'destructive', title: 'Enter a description first' });
+      return;
+    }
+    setIsRegenerating(true);
+    try {
+      const result = await ai.generate({
+        description: regenDescription.trim(),
+        suite_id: suiteId,
+        test_id: testId,
+      });
+      // Replace step rows with newly generated steps
+      setStepRows(
+        (result.steps as any[]).map((s: any) => ({
+          id: s.id ?? `regen-${s.order}-${Date.now()}`,
+          action: s.action,
+          selector: s.selector ?? '',
+          value: s.value ?? '',
+          description: s.description ?? '',
+        }))
+      );
+      onCodeGenerated?.(result.code);
+      setShowRegenerate(false);
+      setRegenDescription('');
+      toast({ title: 'Steps regenerated', description: 'Steps and code updated from AI.' });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Regeneration failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -346,6 +416,93 @@ export function StepEditor({
         </div>
       )}
 
+      {/* Regenerate Steps panel */}
+      {showRegenerate && (
+        <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-white">Regenerate Steps</p>
+            <button
+              onClick={() => { setShowRegenerate(false); setRegenDescription(''); }}
+              className="text-xs text-gray-600 hover:text-gray-400"
+            >✕</button>
+          </div>
+
+          {/* Mode toggle */}
+          <div className="flex gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] p-1 w-fit">
+            <button
+              onClick={() => setRegenMode('describe')}
+              className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-all ${
+                regenMode === 'describe' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Wand2 className="h-3 w-3" /> Describe
+            </button>
+            <button
+              onClick={() => setRegenMode('record')}
+              className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-all ${
+                regenMode === 'record' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Mic className="h-3 w-3" /> Record
+            </button>
+          </div>
+
+          {regenMode === 'describe' && (
+            <div className="space-y-2">
+              <textarea
+                value={regenDescription}
+                onChange={(e) => setRegenDescription(e.target.value)}
+                placeholder="Describe what this test should do…"
+                rows={3}
+                className="w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              />
+              <Button
+                size="sm"
+                onClick={handleRegenerate}
+                disabled={isRegenerating || !regenDescription.trim()}
+                className="gap-1.5 bg-violet-600 hover:bg-violet-700"
+              >
+                {isRegenerating ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerating…</>
+                ) : (
+                  <><Wand2 className="h-3.5 w-3.5" /> Regenerate with AI</>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {regenMode === 'record' && (
+            <RecordingCapture
+              suiteId={suiteId}
+              onSuccess={async (result) => {
+                // Replace this test's steps with the ones extracted from the recording
+                try {
+                  const newSteps = result.steps.map((s, i) => ({
+                    order: i,
+                    action: s.action,
+                    selector: s.selector ?? '',
+                    value: s.value ?? '',
+                    description: s.description ?? '',
+                  }));
+                  await stepsApi.bulkReplace(testId, newSteps);
+                  setStepRows(newSteps.map((s, i) => ({
+                    id: `rec-${i}-${Date.now()}`,
+                    action: s.action,
+                    selector: s.selector,
+                    value: s.value,
+                    description: s.description,
+                  })));
+                  setShowRegenerate(false);
+                  toast({ title: 'Steps updated from recording' });
+                } catch (err) {
+                  toast({ variant: 'destructive', title: 'Failed to update steps', description: err instanceof Error ? err.message : 'Unknown error' });
+                }
+              }}
+            />
+          )}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2 pt-2">
         <Button
@@ -356,6 +513,17 @@ export function StepEditor({
         >
           <Plus className="h-3.5 w-3.5" />
           Add Step
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowRegenerate((v) => !v)}
+          className="gap-1.5 border-white/10 text-gray-400 hover:text-white"
+        >
+          <Wand2 className="h-3.5 w-3.5" />
+          Regenerate Steps
+          <ChevronDown className={`h-3 w-3 transition-transform ${showRegenerate ? 'rotate-180' : ''}`} />
         </Button>
 
         <div className="flex-1" />
@@ -389,7 +557,7 @@ export function StepEditor({
           ) : (
             <>
               <Code2 className="h-3.5 w-3.5" />
-              Generate Code
+              Generate &amp; Run
             </>
           )}
         </Button>

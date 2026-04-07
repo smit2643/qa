@@ -40,12 +40,15 @@ async def process_recording(
     # 2. Target URL
     target_url: str = project.target_url
 
-    # 3. Extract steps
+    # 3. Extract steps — pass suite login so extractor prepends login if video doesn't show it
     llm = LLMProvider()
     steps = await extractor.extract_steps_from_video(
         video_bytes=video_bytes,
         target_url=target_url,
         llm=llm,
+        login_email=getattr(suite, "login_email", None),
+        login_password=getattr(suite, "login_password", None),
+        login_url=getattr(suite, "login_url", None),
     )
 
     # 4. Create TestCase (no code — user will review and then trigger code generation)
