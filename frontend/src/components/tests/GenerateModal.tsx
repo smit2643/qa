@@ -291,11 +291,10 @@ export function GenerateModal({
                 {/* Info banner */}
                 <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">
                   <p className="text-xs text-violet-300 leading-relaxed">
-                    Paste test code in <span className="font-semibold">any language</span> — Selenium, Cypress, Playwright JS, Pytest, Jest, Capybara, or plain English test cases. The AI reads the intent and converts it to Playwright Python.
+                    Paste existing test code in <span className="font-semibold">any language or format</span>. BugForge reads the intent and converts it to browser UI steps — even API tests, unit tests, or plain English test cases.
                   </p>
-                  {/* Language hints */}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {['Selenium', 'Cypress', 'Playwright JS', 'Pytest', 'Jest', 'Ruby', 'C#', 'Java'].map(l => (
+                    {['Selenium', 'Cypress', 'Playwright JS', 'Pytest', 'Jest', 'API tests', 'Unit tests', 'Ruby', 'C#', 'Java', 'Plain English'].map(l => (
                       <span key={l} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-gray-400">{l}</span>
                     ))}
                   </div>

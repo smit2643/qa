@@ -25,33 +25,44 @@ from modules.ai import generator
 from modules.extraction.normalizer import normalize_steps
 
 
-_DETECT_AND_EXTRACT_SYSTEM = """You are a test code analyzer. You receive test code written in ANY language or framework
-(Selenium Java/Python/C#/Ruby, Cypress, Playwright JS/TS, Jest, Pytest, Capybara, TestCafe, plain English test cases, etc.)
-and convert it into a structured list of browser actions.
+_DETECT_AND_EXTRACT_SYSTEM = """You are a test case analyzer for a browser UI testing system. Your job is to read ANY kind of existing test code — regardless of language or framework — and convert it into browser UI steps that Playwright can execute.
 
-RULES:
-- Read the code and understand the INTENT of each action — do not do syntax parsing.
-- Extract ONLY real browser interactions: navigation, clicks, typing, assertions, waits.
-- Ignore setup/teardown boilerplate (driver initialization, imports, before/after hooks, etc.).
-- Detect the source language automatically.
-- Each step must have: action, selector, value, description.
-  - action: navigate | click | type | assert | wait | scroll
-  - selector: the human-readable element name/label/text as it appears on screen (not CSS/XPath)
-  - value: URL for navigate, text to type for type, expected text for assert, ms for wait, "up"/"down" for scroll
-  - description: one clear sentence describing what this step does
-- Convert framework-specific locators to plain English:
-  - cy.get('#email') → selector: "Email"
-  - driver.findElement(By.xpath("//button[@class='login']")) → selector: "Login button"
-  - screen.getByRole('button', {name: 'Submit'}) → selector: "Submit"
-- If the code has a login section, include those steps.
-- If the code asserts something, include an assert step.
+KEY INSIGHT: Even if the source code is an API test, unit test, or backend test, it still describes WHAT to verify about the product. Your job is to convert that intent into equivalent browser UI steps.
 
-Respond with JSON only — a single object with two fields:
+CONVERSION RULES BY TEST TYPE:
+
+1. BROWSER UI TESTS (Selenium, Cypress, Playwright JS, Capybara):
+   - Extract the browser actions directly — navigate, click, type, assert
+   - Convert framework locators to plain English element names
+
+2. API / HTTP TESTS (Pytest requests, Jest fetch, Postman, REST Assured):
+   - Each API endpoint → navigate to that URL in browser
+   - Each assertion about response body → assert that text is visible on the page
+   - Each status code check → assert the page loaded (no error page)
+   - POST/PUT with payload → find the corresponding UI form and fill it
+   - Example: client.get("/users") → navigate to /users, assert page shows user data
+
+3. UNIT TESTS / INTEGRATION TESTS:
+   - Identify the feature being tested (login, search, checkout, etc.)
+   - Convert each test function into the equivalent browser flow
+   - test_login_success() → navigate to login, fill credentials, click submit, assert dashboard
+
+4. PLAIN ENGLISH / MANUAL TEST CASES:
+   - Convert each step directly to browser actions
+
+RULES FOR ALL TYPES:
+- Ignore: imports, fixtures, session setup, retry logic, logging config, decorators
+- Each parametrized test case (@pytest.mark.parametrize) → one step per value
+- Each test function → group its steps together with a comment describing the test
+- selector: visible element name on screen (not CSS/code identifiers)
+- value: URL for navigate, text to type, expected visible text for assert
+
+Respond with JSON only:
 {
-  "detected_language": "cypress|selenium-python|selenium-java|selenium-csharp|playwright-js|pytest|jest|capybara|plain-english|other",
+  "detected_language": "cypress|selenium-python|selenium-java|selenium-csharp|playwright-js|pytest-api|pytest-ui|jest|capybara|plain-english|other",
   "steps": [
     {"action": "navigate", "selector": null, "value": "https://...", "description": "..."},
-    {"action": "type", "selector": "Email", "value": "user@example.com", "description": "..."},
+    {"action": "assert", "selector": null, "value": "expected text visible", "description": "..."},
     ...
   ]
 }"""
@@ -65,9 +76,15 @@ async def _extract_steps_from_code(source_code: str, llm: LLMProvider) -> tuple[
         {
             "role": "user",
             "content": (
-                "Analyze this test code and extract browser actions as steps.\n\n"
+                "Analyze this test code and convert it into browser UI steps.\n\n"
+                "IMPORTANT: Even if this is an API test or unit test, convert the intent "
+                "into what a user would do in a browser to verify the same thing.\n"
+                "- API endpoint tests → navigate to those URLs and assert the page content\n"
+                "- Unit tests → find the UI flow that exercises the same feature\n"
+                "- Each test function = a logical group of steps\n\n"
                 f"```\n{source_code}\n```\n\n"
-                "Return a JSON object with 'detected_language' and 'steps' array."
+                "Return a JSON object with 'detected_language' and 'steps' array. "
+                "Include steps for EVERY test function found in the code."
             ),
         }
     ]
