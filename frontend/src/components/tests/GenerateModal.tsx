@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wand2, Mic, Film, Loader2, Sparkles, Code2, ChevronDown } from 'lucide-react';
+import { Wand2, Mic, Film, Loader2, Sparkles, Code2, ChevronDown, Upload, FileCode, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -90,6 +90,25 @@ export function GenerateModal({
   const [importTestName, setImportTestName] = useState('');
   const [importLanguage, setImportLanguage] = useState('auto');
   const [isImporting, setIsImporting] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setImportCode(text);
+      setUploadedFileName(file.name);
+      // Auto-set test name from filename (strip extension)
+      if (!importTestName.trim()) {
+        setImportTestName(file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '));
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be re-uploaded
+    e.target.value = '';
+  };
 
   const handleDescribeGenerate = async () => {
     if (!description.trim()) {
@@ -313,14 +332,41 @@ export function GenerateModal({
                   </div>
                 </div>
 
-                {/* Code textarea */}
+                {/* Code input — upload or paste */}
                 <div className="space-y-1.5">
-                  <Label className="text-gray-300 text-xs">Paste Test Code</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-gray-300 text-xs">Test Code</Label>
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-gray-400 hover:border-violet-500/40 hover:text-violet-300 transition-all">
+                      <Upload className="h-3 w-3" />
+                      Upload file
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".py,.js,.ts,.jsx,.tsx,.java,.cs,.rb,.feature,.spec.js,.spec.ts,.test.js,.test.ts,.txt,.kt,.go,.php,.swift"
+                        onChange={handleFileUpload}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Uploaded file badge */}
+                  {uploadedFileName && (
+                    <div className="flex items-center gap-2 rounded-md border border-violet-500/20 bg-violet-500/5 px-2.5 py-1.5">
+                      <FileCode className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+                      <span className="text-xs text-violet-300 flex-1 truncate">{uploadedFileName}</span>
+                      <button
+                        onClick={() => { setUploadedFileName(null); setImportCode(''); }}
+                        className="text-gray-600 hover:text-gray-400"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+
                   <Textarea
-                    placeholder={`// Cypress example:\ncy.visit('/login')\ncy.get('[name=email]').type('user@example.com')\ncy.get('[name=password]').type('password123')\ncy.contains('Sign in').click()\ncy.url().should('include', '/dashboard')\n\n// Or Selenium Python:\ndriver.get("https://app.example.com/login")\ndriver.find_element(By.NAME, "email").send_keys("user@example.com")\ndriver.find_element(By.NAME, "password").send_keys("password123")\ndriver.find_element(By.XPATH, "//button[text()='Sign in']").click()`}
+                    placeholder={`// Paste or upload test code in any language:\n\n// Cypress:\ncy.visit('/login')\ncy.get('[name=email]').type('user@example.com')\ncy.contains('Sign in').click()\n\n// Selenium Python:\ndriver.find_element(By.NAME, "email").send_keys("user@example.com")\ndriver.find_element(By.XPATH, "//button").click()\n\n// Pytest, Jest, Java, C#, Ruby... all supported`}
                     value={importCode}
-                    onChange={(e) => setImportCode(e.target.value)}
-                    rows={8}
+                    onChange={(e) => { setImportCode(e.target.value); if (!e.target.value) setUploadedFileName(null); }}
+                    rows={7}
                     className="resize-none border-white/10 bg-white/[0.04] font-mono text-xs text-white placeholder:text-gray-700 focus-visible:ring-violet-500"
                   />
                 </div>
