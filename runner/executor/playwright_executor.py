@@ -22,14 +22,31 @@ from typing import Any
 _SMART_HELPERS = """\
 import re as _re
 
+async def _wait_for_change(page, pre_url, timeout=8000):
+    \"\"\"Wait for URL change OR DOM content loaded — whichever happens first.\"\"\"
+    import asyncio as _asyncio
+    deadline = _asyncio.get_event_loop().time() + timeout / 1000
+    while _asyncio.get_event_loop().time() < deadline:
+        if page.url != pre_url:
+            try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception: pass
+            await page.wait_for_timeout(500)
+            return
+        await page.wait_for_timeout(200)
+    # URL didn't change — page may have updated content in-place (SPA)
+    try: await page.wait_for_load_state("domcontentloaded", timeout=3000)
+    except Exception: pass
+
+
 async def _smart_click(page, selector):
     import re as _re2
     # Strip trailing element-type noise words to get the meaningful label
     clean = _re2.sub(r"\\s+(button|link|icon|tab|item|menu|checkbox|radio)s?$", "", selector, flags=_re2.IGNORECASE).strip()
     clean_lower = clean.lower()
+    safe = clean.replace("'", "\\'").replace('"', '')
+    pre_url = page.url
 
     # ── Truly element-type-only selectors (no meaningful text) ───────────────
-    # These have no label to match by, so go straight to CSS.
     _ELEMENT_TYPES = {"button", "submit", "link", "element", "checkbox", "radio"}
     if clean_lower in _ELEMENT_TYPES:
         for css in [
@@ -39,56 +56,86 @@ async def _smart_click(page, selector):
         ]:
             try:
                 await page.locator(css).first.click(timeout=8000)
-                try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
-                except Exception: pass
+                await _wait_for_change(page, pre_url)
                 return
             except Exception: pass
         raise Exception("Could not click generic element: " + repr(selector))
 
-    # ── All other selectors — match by label/text first ──────────────────────
-    # Use SHORT timeouts per strategy (2s) so we fail-fast and don't waste the
-    # 60s test budget cycling through 9 roles × 6s = 54s on the wrong page.
-    # Elements that exist render immediately; timeout only bites when absent.
-
-    # 1. Role by name — most common for buttons, links, tabs, sidebar items
+    # ── 1. Role-based — most reliable for buttons, links, tabs, sidebar items ─
     for role in ("button", "link", "menuitem", "tab", "option", "checkbox", "radio"):
         try:
             await page.get_by_role(role, name=clean, exact=False).first.click(timeout=2000)
-            try: await page.wait_for_load_state("domcontentloaded", timeout=8000)
-            except Exception: pass
+            await _wait_for_change(page, pre_url)
             return
         except Exception: pass
 
-    # 2. Text match — catches custom components that skip ARIA roles
+    # ── 2. Exact text match on visible elements ───────────────────────────────
     try:
-        await page.get_by_text(clean, exact=False).first.click(timeout=3000)
-        try: await page.wait_for_load_state("domcontentloaded", timeout=8000)
-        except Exception: pass
+        await page.get_by_text(clean, exact=True).first.click(timeout=2000)
+        await _wait_for_change(page, pre_url)
         return
     except Exception: pass
 
-    # 3. Aria/attribute match
-    for attr in ("aria-label", "title", "data-testid", "value", "name"):
+    # ── 3. Case-insensitive substring text match ──────────────────────────────
+    try:
+        await page.get_by_text(clean, exact=False).first.click(timeout=2000)
+        await _wait_for_change(page, pre_url)
+        return
+    except Exception: pass
+
+    # ── 4. Table rows and list items (customer names, data table rows) ────────
+    # This handles clicking names in data grids, search results, customer lists etc.
+    # where the row is a <tr>, <li>, or a div with role="row"/"listitem"
+    for container in (
+        f"tr:has-text('{safe}')",
+        f"li:has-text('{safe}')",
+        f"[role='row']:has-text('{safe}')",
+        f"[role='listitem']:has-text('{safe}')",
+        f"[role='option']:has-text('{safe}')",
+        f"td:has-text('{safe}')",
+    ):
         try:
-            await page.locator('[' + attr + '*="' + clean.replace('"', '') + '" i]').first.click(timeout=2000)
-            try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except Exception: pass
+            await page.locator(container).first.click(timeout=2000)
+            await _wait_for_change(page, pre_url)
             return
         except Exception: pass
 
-    # 4. Last-resort CSS submit fallback for known auth/action words
+    # ── 5. Anchor and clickable div containing the text ───────────────────────
+    for el in (
+        f"a:has-text('{safe}')",
+        f"[class*='name']:has-text('{safe}')",
+        f"[class*='row']:has-text('{safe}')",
+        f"[class*='item']:has-text('{safe}')",
+        f"[class*='customer']:has-text('{safe}')",
+        f"[class*='result']:has-text('{safe}')",
+        f"[class*='card']:has-text('{safe}')",
+        f"[onclick]:has-text('{safe}')",
+        f"[tabindex]:has-text('{safe}')",
+    ):
+        try:
+            await page.locator(el).first.click(timeout=2000)
+            await _wait_for_change(page, pre_url)
+            return
+        except Exception: pass
+
+    # ── 6. Aria/attribute match ───────────────────────────────────────────────
+    for attr in ("aria-label", "title", "data-testid", "value", "name"):
+        try:
+            await page.locator('[' + attr + '*="' + safe + '" i]').first.click(timeout=2000)
+            await _wait_for_change(page, pre_url)
+            return
+        except Exception: pass
+
+    # ── 7. Auth/action CSS fallback ───────────────────────────────────────────
     _AUTH_ACTIONS = {"sign in", "signin", "login", "log in", "sign up", "signup", "register"}
-    _ACTION_WORDS = _AUTH_ACTIONS | {"continue", "next", "ok", "yes", "confirm", "save", "send", "submit", "apply", "search", "go"}
+    _ACTION_WORDS = _AUTH_ACTIONS | {"continue", "next", "ok", "yes", "confirm", "save", "send", "submit", "apply", "search", "go", "show results", "show"}
     if clean_lower in _ACTION_WORDS:
-        pre_url = page.url
         for css in ["button[type='submit']", "input[type='submit']", "button:visible"]:
             try:
                 await page.locator(css).first.click(timeout=8000)
-                try: await page.wait_for_load_state("domcontentloaded", timeout=8000)
-                except Exception: pass
-                # Auth actions must navigate away — if URL unchanged after 5s, login failed
+                await _wait_for_change(page, pre_url)
                 if clean_lower in _AUTH_ACTIONS:
-                    await page.wait_for_timeout(5000)
+                    await page.wait_for_timeout(3000)
                     if page.url == pre_url:
                         raise Exception("Auth failed — page did not navigate away from " + pre_url)
                 return
@@ -224,9 +271,32 @@ def _sanitize_test_code(code: str) -> str:
                 ind + '    await page.wait_for_load_state("networkidle", timeout=15000)',
                 ind + 'except Exception:',
                 ind + '    await page.wait_for_load_state("domcontentloaded", timeout=10000)',
-                ind + 'await page.wait_for_timeout(2000)',
+                ind + 'await page.wait_for_timeout(1500)',
             ]
+        # Replace raw wait_for_timeout(N) after _smart_click with _wait_for_change
+        # (already handled — we keep explicit waits only after goto)
     code = "\n".join(lines)
+
+    # 3b. Collapse consecutive wait_for_timeout lines — keep only the longest
+    deduped_waits: list[str] = []
+    i = 0
+    wait_pat = re.compile(r'^(\s*)await page\.wait_for_timeout\((\d+)\)')
+    lines = code.splitlines()
+    while i < len(lines):
+        m = wait_pat.match(lines[i])
+        if m:
+            ind, ms = m.group(1), int(m.group(2))
+            # Absorb all consecutive wait lines
+            j = i + 1
+            while j < len(lines) and wait_pat.match(lines[j]):
+                ms = max(ms, int(wait_pat.match(lines[j]).group(2)))
+                j += 1
+            deduped_waits.append(f"{ind}await page.wait_for_timeout({ms})")
+            i = j
+        else:
+            deduped_waits.append(lines[i])
+            i += 1
+    code = "\n".join(deduped_waits)
 
     # 4. Line-by-line rewrite of fill and click calls.
     #    We parse each line individually to avoid regex cross-contamination.
@@ -286,8 +356,7 @@ def _sanitize_test_code(code: str) -> str:
                 result_lines.append(f'{ind}pass  # skipped input focus click on {repr(sel)}')
                 continue
             result_lines.append(f'{ind}await _smart_click(page, {repr(sel)})')
-            # After auth clicks, inject a navigation assertion so the test fails
-            # immediately with a clear message instead of continuing on the wrong page.
+            # After auth clicks, inject a navigation assertion
             _AUTH_CLICK_WORDS = ("sign in", "signin", "login", "log in",
                                  "sign up", "signup", "register", "submit")
             if any(w in sel.lower() for w in _AUTH_CLICK_WORDS):
