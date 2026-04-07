@@ -41,7 +41,7 @@ export function Sidebar() {
           <Zap className="h-4 w-4 text-white" />
         </div>
         <span className="text-[15px] font-semibold tracking-tight text-white">
-          Bug0
+          BugForge
         </span>
         <span className="ml-1 rounded-full bg-violet-600/20 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
           BETA

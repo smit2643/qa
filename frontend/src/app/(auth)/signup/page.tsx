@@ -69,7 +69,7 @@ export default function SignupPage() {
           <div className="text-center">
             <h1 className="text-2xl font-bold text-white">Create account</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Start testing smarter with Bug0
+              Start testing smarter with BugForge
             </p>
           </div>
         </div>
