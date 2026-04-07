@@ -143,6 +143,56 @@ async def _smart_click(page, selector):
                 if "Auth failed" in str(_e): raise
                 continue
 
+    # ── 8. Fuzzy fallback — handle typos from Ollama (e.g. "cusotmers" → "Customers") ──
+    # Collect all visible interactive element texts and find the closest match.
+    import difflib as _difflib
+    try:
+        # Get text of all visible clickable elements
+        candidates = await page.evaluate("""() => {
+            const els = document.querySelectorAll(
+                'button, a, [role="button"], [role="menuitem"], [role="tab"], ' +
+                'li, tr, [role="row"], [role="listitem"], [role="option"], ' +
+                'nav *[class], aside *[class], [class*="menu"] *, [class*="nav"] *, ' +
+                '[class*="sidebar"] *, [class*="item"], [class*="link"]'
+            );
+            const results = [];
+            for (const el of els) {
+                const text = (el.innerText || el.textContent || '').trim();
+                const rect = el.getBoundingClientRect();
+                if (text && text.length < 60 && rect.width > 0 && rect.height > 0) {
+                    results.push(text.split('\\n')[0].trim());
+                }
+            }
+            return [...new Set(results)].slice(0, 100);
+        }""")
+        if candidates:
+            matches = _difflib.get_close_matches(clean, candidates, n=1, cutoff=0.5)
+            if not matches:
+                # Try with individual words — handles "cusotmers" matching "Customers"
+                clean_words = [w for w in clean.split() if len(w) > 2]
+                for word in clean_words:
+                    word_matches = _difflib.get_close_matches(word, candidates, n=1, cutoff=0.6)
+                    if word_matches:
+                        matches = word_matches
+                        break
+            if matches:
+                best = matches[0]
+                safe_best = best.replace("'", "\\'")
+                for strategy in (
+                    lambda: page.get_by_role("button", name=best, exact=False).first.click(timeout=3000),
+                    lambda: page.get_by_role("link", name=best, exact=False).first.click(timeout=3000),
+                    lambda: page.get_by_text(best, exact=True).first.click(timeout=3000),
+                    lambda: page.locator(f"tr:has-text('{safe_best}')").first.click(timeout=3000),
+                    lambda: page.locator(f"li:has-text('{safe_best}')").first.click(timeout=3000),
+                    lambda: page.get_by_text(best, exact=False).first.click(timeout=3000),
+                ):
+                    try:
+                        await strategy()
+                        await _wait_for_change(page, pre_url)
+                        return
+                    except Exception: pass
+    except Exception: pass
+
     raise Exception("Could not click: " + repr(selector))
 
 
