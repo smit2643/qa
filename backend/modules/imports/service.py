@@ -242,12 +242,24 @@ async def import_code(
     db.commit()
     db.refresh(test_case)
 
+    # Serialize steps — ensure all values are JSON-safe
+    serialized_steps = [
+        {
+            "order": s.get("order", 0),
+            "action": s.get("action", "wait"),
+            "selector": s.get("selector"),
+            "value": str(s["value"]) if s.get("value") is not None else None,
+            "description": s.get("description", ""),
+        }
+        for s in steps
+    ]
+
     return {
         "test_id": test_case.id,
         "suite_id": suite_id,
         "test_name": test_name,
         "source_language": detected_language,
-        "steps": steps,
+        "steps": serialized_steps,
         "code": code,
         "version": test_case.version,
         "message": f"Imported {len(steps)} steps from {detected_language} code.",

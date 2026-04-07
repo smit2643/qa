@@ -1,18 +1,21 @@
 """Router for code import module."""
 
+import logging
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from core.database import get_db
 from modules.auth.dependencies import get_current_user
 from models import User
-from .schemas import CodeImportRequest, CodeImportResponse
+from .schemas import CodeImportRequest
 from . import service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 
-@router.post("/code", response_model=CodeImportResponse)
+@router.post("/code")
 async def import_code(
     data: CodeImportRequest,
     db: Session = Depends(get_db),
@@ -35,4 +38,4 @@ async def import_code(
         source_code=data.source_code,
         source_language=data.source_language,
     )
-    return CodeImportResponse(**result)
+    return JSONResponse(content=result)
